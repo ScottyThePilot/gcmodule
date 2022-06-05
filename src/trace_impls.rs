@@ -9,7 +9,7 @@ use crate::trace::{Trace, Tracer};
 /// ## Examples
 ///
 /// ```
-/// use gcmodule::trace_acyclic;
+/// use jrsonnet_gcmodule::trace_acyclic;
 ///
 /// struct X(u32);
 /// struct Y(String);
@@ -36,8 +36,8 @@ macro_rules! trace_acyclic {
 /// ## Examples
 ///
 /// ```
-/// use gcmodule::Trace;
-/// use gcmodule::trace_fields;
+/// use jrsonnet_gcmodule::Trace;
+/// use jrsonnet_gcmodule::trace_fields;
 ///
 /// struct X<T1, T2> { a: T1, b: T2 };
 /// struct Y<T>(Box<T>);

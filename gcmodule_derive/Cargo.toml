@@ -1,11 +1,11 @@
 [package]
-name = "gcmodule_derive"
+name = "jrsonnet-gcmodule-derive"
 version = "0.3.3"
-authors = ["Jun Wu <quark@lihdd.net>"]
+authors = ["Jun Wu <quark@lihdd.net>", "Yaroslav Bolyukin <iam@lach.pw>"]
 edition = "2018"
 license = "MIT"
 description = "Generate code to implement Trace trait on structures."
-repository = "https://github.com/quark-zju/gcmodule"
+repository = "https://github.com/CertainLach/gcmodule"
 
 [lib]
 proc-macro = true
@@ -16,4 +16,4 @@ syn = { version = "1", features = ["derive"] }
 proc-macro2 = "1.0.32"
 
 [dev-dependencies]
-gcmodule = { path = ".." }
+gcmodule = { package = "jrsonnet-gcmodule", path = ".." }

@@ -16,7 +16,7 @@
 //! Similar to `Rc<T>`, use `clone()` to get cloned references.
 //!
 //! ```
-//! use gcmodule::Cc;
+//! use jrsonnet_gcmodule::Cc;
 //! let foo = Cc::new(vec![1, 2, 3]);
 //! let foo_cloned = foo.clone();
 //!
@@ -33,7 +33,7 @@
 //! many objects are tracked by the collector.
 //!
 //! ```
-//! use gcmodule::{Cc, Trace};
+//! use jrsonnet_gcmodule::{Cc, Trace};
 //! use std::cell::RefCell;
 //! {
 //!     type List = Cc<RefCell<Vec<Box<dyn Trace>>>>;
@@ -46,9 +46,9 @@
 //! // a and b form circular references. The objects they point to are not
 //! // dropped automatically, despite both variables run out of scope.
 //!
-//! assert_eq!(gcmodule::count_thread_tracked(), 2);   // 2 values are tracked.
-//! assert_eq!(gcmodule::collect_thread_cycles(), 2);  // This will drop a and b.
-//! assert_eq!(gcmodule::count_thread_tracked(), 0);   // no values are tracked.
+//! assert_eq!(jrsonnet_gcmodule::count_thread_tracked(), 2);   // 2 values are tracked.
+//! assert_eq!(jrsonnet_gcmodule::collect_thread_cycles(), 2);  // This will drop a and b.
+//! assert_eq!(jrsonnet_gcmodule::count_thread_tracked(), 0);   // no values are tracked.
 //! ```
 //!
 //! ## Multi-thread support
@@ -60,7 +60,7 @@
 //! they take more memory, are slower, and a bit harder to use.
 //!
 //! ```
-//! use gcmodule::{ThreadedObjectSpace, ThreadedCc, Trace};
+//! use jrsonnet_gcmodule::{ThreadedObjectSpace, ThreadedCc, Trace};
 //! use std::sync::Mutex;
 //!
 //! type List = ThreadedCc<Mutex<Vec<Box<dyn Trace + Send + Sync>>>>;
@@ -91,7 +91,7 @@
 //! [`Trace::is_type_tracked()`](trait.Trace.html#method.is_type_tracked) will return `false`.
 //!
 //! ```
-//! use gcmodule::{Cc, Trace};
+//! use jrsonnet_gcmodule::{Cc, Trace};
 //!
 //! #[derive(Trace)]
 //! struct Foo(String);
@@ -105,7 +105,7 @@
 //! let foo = Cc::new(Foo("abc".to_string()));
 //! let bar = Cc::new(Bar);
 //! let foo_cloned = foo.clone(); // Share the same `"abc"` with `foo`.
-//! assert_eq!(gcmodule::count_thread_tracked(), 0); // The collector tracks nothing.
+//! assert_eq!(jrsonnet_gcmodule::count_thread_tracked(), 0); // The collector tracks nothing.
 //! drop(foo); // The ref count of `"abc"` drops from 2 to 1.
 //! drop(foo_cloned); // `"abc"` will be dropped here..
 //! # drop(bar);
@@ -117,25 +117,25 @@
 //! types without referring to trait objects or itself are considered acyclic.
 //!
 //! ```
-//! use gcmodule::{Cc, Trace};
+//! use jrsonnet_gcmodule::{Cc, Trace};
 //!
 //! #[derive(Trace)]
 //! struct Foo<T1: Trace, T2: Trace>(T1, T2, u8);
 //!
 //! // `a` is not tracked - types are acyclic.
 //! let a = Cc::new(Foo(Foo(Cc::new(1), 2, 3), Cc::new("abc"), 10));
-//! assert_eq!(gcmodule::count_thread_tracked(), 0);
+//! assert_eq!(jrsonnet_gcmodule::count_thread_tracked(), 0);
 //!
 //! // `b` is tracked because it contains a trait object.
 //! let b = Cc::new(Foo(Box::new(1) as Box<dyn Trace>, 2, 3));
-//! assert_eq!(gcmodule::count_thread_tracked(), 1);
+//! assert_eq!(jrsonnet_gcmodule::count_thread_tracked(), 1);
 //! ```
 //!
 //! The `#[skip_trace]` attribute can be used to skip tracking specified fields
 //! in a structure.
 //!
 //! ```
-//! use gcmodule::{Cc, Trace};
+//! use jrsonnet_gcmodule::{Cc, Trace};
 //!
 //! struct AlienStruct; // Does not implement Trace
 //!
@@ -155,7 +155,7 @@
 //! to test if the value is still alive and to access the value. For example:
 //!
 //! ```
-//! use gcmodule::{Cc, Weak};
+//! use jrsonnet_gcmodule::{Cc, Weak};
 //!
 //! let value = Cc::new("foo");
 //! let weak: Weak<_> = value.downgrade();
@@ -288,7 +288,7 @@ pub use sync::{collect::ThreadedObjectSpace, ThreadedCc, ThreadedCcRef};
 /// # Examples
 ///
 /// ```
-/// use gcmodule::{Cc, Trace};
+/// use jrsonnet_gcmodule::{Cc, Trace};
 ///
 /// #[derive(Trace)]
 /// struct S1(u32, String);

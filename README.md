@@ -1,8 +1,10 @@
-# gcmodule
+# jrsonnet-gcmodule
 
-[![Documentation](https://docs.rs/gcmodule/badge.svg)](https://docs.rs/gcmodule)
-[![crates.io](http://meritbadge.herokuapp.com/gcmodule)](https://crates.io/crates/gcmodule)
-![Build Status](https://github.com/quark-zju/gcmodule/workflows/build/badge.svg)
+[![Documentation](https://docs.rs/jrsonnet-gcmodule/badge.svg)](https://docs.rs/jrsonnet-gcmodule)
+[![crates.io](https://img.shields.io/crates/v/jrsonnet-gcmodule)](https://crates.io/crates/jrsonnet-gcmodule)
+![Build Status](https://github.com/CertainLach/gcmodule/workflows/build/badge.svg)
+
+This is fork of https://github.com/quark-zju/gcmodule package, which implements several features for usage in jrsonnet
 
 Garbage collection inspired by [CPython](https://github.com/python/cpython/)'s implementation.
 

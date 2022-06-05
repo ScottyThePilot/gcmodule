@@ -38,7 +38,7 @@ use std::pin::Pin;
 /// # Example
 ///
 /// ```
-/// use gcmodule::{Cc, ObjectSpace, Trace};
+/// use jrsonnet_gcmodule::{Cc, ObjectSpace, Trace};
 /// use std::cell::RefCell;
 ///
 /// let mut space = ObjectSpace::default();
