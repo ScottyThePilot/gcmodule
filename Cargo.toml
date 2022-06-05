@@ -14,13 +14,13 @@ readme = "README.md"
 quickcheck = { version = "0.9", default-features = false }
 
 [dependencies]
-gcmodule_derive = { package = "jrsonnet-gcmodule-derive", version = "=0.3.3", optional = true, path = "gcmodule_derive" }
+jrsonnet-gcmodule-derive = { version = "0.3.3", optional = true, path = "gcmodule_derive" }
 parking_lot = { version = "0.10", optional = true }
 
 [features]
 default = ["derive", "sync"]
 debug = []
-derive = ["gcmodule_derive"]
+derive = ["jrsonnet-gcmodule-derive"]
 nightly = []
 sync = ["parking_lot"]
 testutil = []

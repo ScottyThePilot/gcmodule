@@ -308,7 +308,7 @@ pub use sync::{collect::ThreadedObjectSpace, ThreadedCc, ThreadedCcRef};
 /// struct AlienStruct;
 /// ```
 #[cfg(feature = "derive")]
-pub use gcmodule_derive::Trace;
+pub use jrsonnet_gcmodule_derive::Trace;
 
 #[cfg(not(test))]
 mod debug {
