@@ -35,7 +35,8 @@ use std::ptr::NonNull;
 //     +----------------------+
 
 /// The data shared by multiple `RawCc<T, O>` pointers.
-#[repr(C)]
+#[cfg_attr(target_pointer_width = "32", repr(C, align(8)))]
+#[cfg_attr(not(target_pointer_width = "32"), repr(C))]
 pub(crate) struct RawCcBox<T: ?Sized, O: AbstractObjectSpace> {
     pub(crate) ref_count: O::RefCount,
 
