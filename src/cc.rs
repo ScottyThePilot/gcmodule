@@ -35,8 +35,7 @@ use std::ptr::NonNull;
 //     +----------------------+
 
 /// The data shared by multiple `RawCc<T, O>` pointers.
-#[cfg_attr(target_pointer_width = "32", repr(C, align(8)))]
-#[cfg_attr(not(target_pointer_width = "32"), repr(C))]
+#[repr(C)]
 pub(crate) struct RawCcBox<T: ?Sized, O: AbstractObjectSpace> {
     pub(crate) ref_count: O::RefCount,
 
@@ -157,6 +156,10 @@ impl<T: Trace> Cc<T> {
     }
 }
 
+fn aligned_size(size: usize, align: usize) -> usize {
+    align * ((size - 1) / align + 1)
+}
+
 impl<T: Trace, O: AbstractObjectSpace> RawCc<T, O> {
     /// Constructs a new [`Cc<T>`](type.Cc.html) in the given
     /// [`ObjectSpace`](struct.ObjectSpace.html).
@@ -178,8 +181,13 @@ impl<T: Trace, O: AbstractObjectSpace> RawCc<T, O> {
             // Fix-up fields in GcHeader. This is done after the creation of the
             // Box so the memory addresses are stable.
             space.insert(&mut boxed.header, &boxed.cc_box);
+            assert!(mem::align_of::<O::Header>() >= mem::align_of::<RawCcBox<T, O>>());
             debug_assert_eq!(
-                mem::size_of::<O::Header>() + mem::size_of::<RawCcBox<T, O>>(),
+                mem::size_of::<O::Header>()
+                    + aligned_size(
+                        mem::size_of::<RawCcBox<T, O>>(),
+                        mem::align_of::<RawCcBox<T, O>>().max(mem::align_of::<O::Header>())
+                    ),
                 mem::size_of::<RawCcBoxWithGcHeader<T, O>>()
             );
             let ptr: *mut RawCcBox<T, O> = &mut boxed.cc_box;
