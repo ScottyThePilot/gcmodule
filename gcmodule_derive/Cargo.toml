@@ -11,9 +11,9 @@ repository = "https://github.com/CertainLach/gcmodule"
 proc-macro = true
 
 [dependencies]
-quote = "1"
-syn = { version = "1", features = ["derive"] }
-proc-macro2 = "1.0.32"
+quote = "1.0"
+syn = { version = "1.0", features = ["derive"] }
+proc-macro2 = "1.0"
 
 [dev-dependencies]
 jrsonnet-gcmodule = { path = ".." }
