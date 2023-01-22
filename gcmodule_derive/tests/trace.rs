@@ -1,5 +1,5 @@
-use gcmodule::{Cc, Trace, Tracer};
-use gcmodule_derive::Trace as DeriveTrace;
+use jrsonnet_gcmodule::{Cc, Trace, Tracer};
+use jrsonnet_gcmodule_derive::Trace as DeriveTrace;
 use std::cell::RefCell;
 use std::rc::Rc;
 
@@ -137,7 +137,7 @@ fn test_real_cycles() {
         *(s2.0.borrow_mut()) = Some(Box::new(s3.clone()));
         *(s3.0.borrow_mut()) = Some(Box::new(s1.clone()));
     }
-    assert_eq!(gcmodule::collect_thread_cycles(), 3);
+    assert_eq!(jrsonnet_gcmodule::collect_thread_cycles(), 3);
 }
 
 #[test]

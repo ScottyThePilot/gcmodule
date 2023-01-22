@@ -4,10 +4,10 @@
 //! # Example
 //!
 //! ```
-//! use gcmodule_derive::Trace;
+//! use jrsonnet_gcmodule_derive::Trace;
 //!
 //! #[derive(Trace)]
-//! struct S<T: gcmodule::Trace> {
+//! struct S<T: jrsonnet_gcmodule::Trace> {
 //!     a: String,
 //!     b: Option<T>,
 //!
