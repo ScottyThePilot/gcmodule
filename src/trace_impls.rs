@@ -463,6 +463,12 @@ mod thread {
     trace_acyclic!(thread::Thread);
 }
 
+mod phantom {
+    use std::marker::PhantomData;
+
+    trace_acyclic!(<T> PhantomData<T>);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
