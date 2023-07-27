@@ -186,6 +186,20 @@ mod cell {
             T::is_type_tracked()
         }
     }
+
+    impl<T: Trace> Trace for cell::OnceCell<T> {
+        fn trace(&self, tracer: &mut Tracer) {
+            if let Some(x) = self.get() {
+                x.trace(tracer)
+            }
+        }
+
+        #[inline]
+        fn is_type_tracked() -> bool {
+            T::is_type_tracked()
+        }
+    }
+
 }
 
 mod collections {
