@@ -1,11 +1,11 @@
 [package]
 name = "jrsonnet-gcmodule-derive"
-version = "0.3.5"
-authors = ["Jun Wu <quark@lihdd.net>", "Yaroslav Bolyukin <iam@lach.pw>"]
-edition = "2018"
-license = "MIT"
+version.workspace = true
+authors.workspace  = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
 description = "Generate code to implement Trace trait on structures."
-repository = "https://github.com/CertainLach/gcmodule"
 
 [lib]
 proc-macro = true

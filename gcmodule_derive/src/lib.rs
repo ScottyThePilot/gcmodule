@@ -232,7 +232,7 @@ fn derive_trace(input: DeriveInput) -> Result<TokenStream2> {
 
             (
                 quote! {
-                    Self#trace
+                    Self #trace
                 },
                 quote! {
                     #is_type_tracked
