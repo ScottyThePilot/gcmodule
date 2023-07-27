@@ -73,10 +73,13 @@ trace_acyclic!(String, &'static str);
 
 mod tuples {
     trace_fields!(
-        (A, B) { 0: A, 1: B }
-        (A, B, C) { 0: A, 1: B, 2: C }
-        (A, B, C, D) { 0: A, 1: B, 2: C, 3: D }
-        (A, B, C, D, E) { 0: A, 1: B, 2: C, 3: D, 4: E }
+        (A,) { 0: A }
+        (A, B,) { 0: A, 1: B }
+        (A, B, C,) { 0: A, 1: B, 2: C }
+        (A, B, C, D,) { 0: A, 1: B, 2: C, 3: D }
+        (A, B, C, D, E,) { 0: A, 1: B, 2: C, 3: D, 4: E }
+        (A, B, C, D, E, F,) { 0: A, 1: B, 2: C, 3: D, 4: E, 5: F }
+        (A, B, C, D, E, F, G,) { 0: A, 1: B, 2: C, 3: D, 4: E, 5: F, 6: G }
     );
 }
 
