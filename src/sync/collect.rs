@@ -11,7 +11,6 @@ use parking_lot::Mutex;
 use parking_lot::RwLock;
 use std::cell::Cell;
 use std::mem;
-use std::ops::Deref;
 use std::pin::Pin;
 use std::sync::Arc;
 
@@ -59,11 +58,11 @@ impl AbstractObjectSpace for ThreadedObjectSpace {
         debug_assert!(!collect::is_collecting(prev));
         debug_assert!(header.next.get().is_null());
         let next = prev.next.get();
-        header.prev.set(prev.deref());
+        header.prev.set(prev);
         header.next.set(next);
         unsafe {
             // safety: The linked list is maintained, and pointers are valid.
-            (&*next).prev.set(header);
+            (*next).prev.set(header);
             // safety: To access vtable pointer. Test by test_gc_header_value.
             let fat_ptr: [*mut (); 2] = mem::transmute(value);
             header.ccdyn_vptr = fat_ptr[1];
@@ -74,7 +73,7 @@ impl AbstractObjectSpace for ThreadedObjectSpace {
     #[inline]
     fn remove(header: &Self::Header) {
         let _linked_list_lock = header.linked_list_lock.lock();
-        let header: &Header = &header;
+        let header: &Header = header;
         debug_assert!(!collect::is_collecting(header));
         debug_assert!(!header.next.get().is_null());
         debug_assert!(!header.prev.get().is_null());

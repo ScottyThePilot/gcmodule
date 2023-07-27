@@ -19,6 +19,7 @@ use crate::trace::{Trace, Tracer};
 /// trace_acyclic!(Y);
 /// trace_acyclic!(<T> Z<T>);
 /// ```
+#[macro_export]
 macro_rules! trace_acyclic {
     ( <$( $g:ident ),*> $( $t: tt )* ) => {
         impl<$( $g: 'static ),*> $crate::Trace for $($t)* {
@@ -49,6 +50,7 @@ macro_rules! trace_acyclic {
 ///     Z { 0 }
 /// );
 /// ```
+#[macro_export]
 macro_rules! trace_fields {
     ( $( $type:ty { $( $field:tt $(: $tp:ident )? ),* } )* ) => {
         $(
@@ -92,9 +94,8 @@ mod borrow {
         T::Owned: Trace,
     {
         fn trace(&self, tracer: &mut Tracer) {
-            match self {
-                Cow::Owned(v) => v.trace(tracer),
-                _ => (),
+            if let Cow::Owned(v) = self {
+                v.trace(tracer)
             }
         }
 
@@ -199,7 +200,6 @@ mod cell {
             T::is_type_tracked()
         }
     }
-
 }
 
 mod collections {

@@ -111,7 +111,7 @@ fn derive_fields(
     trace_attr: &Option<TraceAttr>,
     fields: &Fields,
 ) -> Result<(TokenStream2, TokenStream2)> {
-    fn inner<'a>(names: &[Ident], fields: Vec<&Field>) -> Result<(TokenStream2, TokenStream2)> {
+    fn inner(names: &[Ident], fields: Vec<&Field>) -> Result<(TokenStream2, TokenStream2)> {
         let attrs = fields
             .iter()
             .map(|f| parse_attr::<TraceAttr, _>(&f.attrs, "trace"))

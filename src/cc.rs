@@ -343,7 +343,7 @@ impl<T: ?Sized, O: AbstractObjectSpace> RawCcBox<T, O> {
                 }
             }
 
-            return result;
+            result
         }
     }
 }

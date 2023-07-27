@@ -73,6 +73,6 @@ pub trait Trace: 'static {
         Self: Sized,
     {
         // Fallback implementation: Opt-in the collector for correctness.
-        return true;
+        true
     }
 }

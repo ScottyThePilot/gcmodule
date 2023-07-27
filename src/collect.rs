@@ -90,11 +90,11 @@ impl AbstractObjectSpace for ObjectSpace {
         let prev: &GcHeader = &self.list.borrow();
         debug_assert!(header.next.get().is_null());
         let next = prev.next.get();
-        header.prev.set(prev.deref());
+        header.prev.set(prev);
         header.next.set(next);
         unsafe {
             // safety: The linked list is maintained, and pointers are valid.
-            (&*next).prev.set(header);
+            (*next).prev.set(header);
             // safety: To access vtable pointer. Test by test_gc_header_value.
             let fat_ptr: [*mut (); 2] = mem::transmute(value);
             header.ccdyn_vptr = fat_ptr[1];
@@ -104,7 +104,7 @@ impl AbstractObjectSpace for ObjectSpace {
 
     #[inline]
     fn remove(header: &Self::Header) {
-        let header: &GcHeader = &header;
+        let header: &GcHeader = header;
         debug_assert!(!header.next.get().is_null());
         debug_assert!(!header.prev.get().is_null());
         let next = header.next.get();
@@ -400,7 +400,7 @@ fn release_unreachable<L: Linked, K>(list: &L, lock: K) -> usize {
     // used.
     drop(lock);
     // Drop the reference to the list so we don't reuse it.
-    drop(list);
+    // drop(list);
 
     #[cfg(feature = "debug")]
     {
@@ -488,6 +488,6 @@ fn debug_name<L: Linked>(header: &L) -> String {
 
     #[cfg(not(feature = "debug"))]
     {
-        return "(enable gcmodule \"debug\" feature for debugging)".to_string();
+        "(enable gcmodule \"debug\" feature for debugging)".to_string()
     }
 }

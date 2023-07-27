@@ -16,7 +16,7 @@ impl ThreadedRefCount {
     #[inline]
     pub(crate) fn new(tracked: bool, collector_lock: Arc<RwLock<()>>) -> Self {
         Self {
-            collector_lock: collector_lock,
+            collector_lock,
             ref_count: AtomicUsize::new(
                 (1 << REF_COUNT_SHIFT) | if tracked { REF_COUNT_MASK_TRACKED } else { 0 },
             ),

@@ -65,6 +65,8 @@ impl<'a, T: ?Sized> Deref for ThreadedCcRef<'a, T> {
     type Target = T;
 
     fn deref(&self) -> &Self::Target {
+        // Only a marker to show the lock is here
+        #[allow(clippy::let_underscore_lock)]
         let _ = &self.locked;
         self.parent.inner().deref()
     }

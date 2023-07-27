@@ -21,11 +21,6 @@ impl<T: PartialEq + ?Sized> PartialEq for RawCc<T, O> {
     fn eq(&self, other: &RawCc<T, O>) -> bool {
         **self == **other
     }
-
-    #[inline]
-    fn ne(&self, other: &RawCc<T, O>) -> bool {
-        **self != **other
-    }
 }
 
 impl<T: hash::Hash + ?Sized> hash::Hash for RawCc<T, O> {
