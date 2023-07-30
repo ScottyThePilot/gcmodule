@@ -1,12 +1,12 @@
 [package]
-name = "jrsonnet-gcmodule"
+name = "gcmodule"
 version = "0.3.5"
 authors = ["Jun Wu <quark@lihdd.net>", "Yaroslav Bolyukin <iam@lach.pw>"]
-edition = "2018"
+edition = "2021"
 license = "MIT"
 description = "Cyclic garbage collection inspired by CPython's gc implementation."
 keywords = ["gc", "garbage", "cycle", "rc"]
-repository = "https://github.com/CertainLach/gcmodule"
+repository = "https://github.com/ScottyThePilot/gcmodule"
 categories = ["memory-management"]
 readme = "README.md"
 
@@ -14,13 +14,13 @@ readme = "README.md"
 quickcheck = { version = "1.0", default-features = false }
 
 [dependencies]
-jrsonnet-gcmodule-derive = { version = "0.3.5", optional = true, path = "gcmodule_derive" }
+gcmodule-derive = { version = "0.3.5", optional = true, path = "gcmodule_derive" }
 parking_lot = { version = "0.12.1", optional = true }
 
 [features]
 default = ["derive", "sync"]
 debug = []
-derive = ["jrsonnet-gcmodule-derive"]
+derive = ["gcmodule-derive"]
 nightly = []
 sync = ["parking_lot"]
 testutil = []

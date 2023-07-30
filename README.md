@@ -1,4 +1,4 @@
-# jrsonnet-gcmodule
+# gcmodule
 
 [![Documentation](https://docs.rs/jrsonnet-gcmodule/badge.svg)](https://docs.rs/jrsonnet-gcmodule)
 [![crates.io](https://img.shields.io/crates/v/jrsonnet-gcmodule)](https://crates.io/crates/jrsonnet-gcmodule)

@@ -9,7 +9,7 @@ use crate::trace::{Trace, Tracer};
 /// ## Examples
 ///
 /// ```
-/// use jrsonnet_gcmodule::trace_acyclic;
+/// use gcmodule::trace_acyclic;
 ///
 /// struct X(u32);
 /// struct Y(String);
@@ -36,8 +36,8 @@ macro_rules! trace_acyclic {
 /// ## Examples
 ///
 /// ```
-/// use jrsonnet_gcmodule::Trace;
-/// use jrsonnet_gcmodule::trace_fields;
+/// use gcmodule::Trace;
+/// use gcmodule::trace_fields;
 ///
 /// struct X<T1, T2> { a: T1, b: T2 };
 /// struct Y<T>(Box<T>);
@@ -188,7 +188,6 @@ mod cell {
 mod collections {
     use super::*;
     use std::collections;
-    use std::hash;
 
     impl<K: Trace, V: Trace> Trace for collections::BTreeMap<K, V> {
         fn trace(&self, tracer: &mut Tracer) {
@@ -204,7 +203,19 @@ mod collections {
         }
     }
 
-    impl<K: Eq + hash::Hash + Trace, V: Trace> Trace for collections::HashMap<K, V> {
+    impl<T: Trace> Trace for collections::BTreeSet<T> {
+        fn trace(&self, tracer: &mut Tracer) {
+            for t in self {
+                t.trace(tracer);
+            }
+        }
+
+        fn is_type_tracked() -> bool {
+            T::is_type_tracked()
+        }
+    }
+
+    impl<K: Trace, V: Trace, B: 'static> Trace for collections::HashMap<K, V, B> {
         fn trace(&self, tracer: &mut Tracer) {
             for (k, v) in self {
                 k.trace(tracer);
@@ -215,6 +226,19 @@ mod collections {
         #[inline]
         fn is_type_tracked() -> bool {
             K::is_type_tracked() || V::is_type_tracked()
+        }
+    }
+
+    impl<T: Trace, B: 'static> Trace for collections::HashSet<T, B> {
+        fn trace(&self, tracer: &mut Tracer) {
+            for t in self {
+                t.trace(tracer);
+            }
+        }
+
+        #[inline]
+        fn is_type_tracked() -> bool {
+            T::is_type_tracked()
         }
     }
 

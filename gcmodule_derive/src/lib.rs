@@ -4,10 +4,10 @@
 //! # Example
 //!
 //! ```
-//! use jrsonnet_gcmodule_derive::Trace;
+//! use gcmodule_derive::Trace;
 //!
 //! #[derive(Trace)]
-//! struct S<T: jrsonnet_gcmodule::Trace> {
+//! struct S<T: gcmodule::Trace> {
 //!     a: String,
 //!     b: Option<T>,
 //!
@@ -124,7 +124,7 @@ fn derive_fields(
                 _ => {}
             }
             Some(quote! {
-                ::jrsonnet_gcmodule::Trace::trace(#name, tracer)
+                ::gcmodule::Trace::trace(#name, tracer)
             })
         });
         let is_type_tracked = fields.iter().zip(attrs.iter()).filter_map(|(field, attr)| {
@@ -137,7 +137,7 @@ fn derive_fields(
             }
             let ty = &field.ty;
             Some(quote! {
-                <#ty as ::jrsonnet_gcmodule::Trace>::is_type_tracked()
+                <#ty as ::gcmodule::Trace>::is_type_tracked()
             })
         });
 
@@ -216,8 +216,8 @@ fn derive_trace(input: DeriveInput) -> Result<TokenStream2> {
     let (impl_generics, type_generics, where_clause) = input.generics.split_for_impl();
     if matches!(trace_attr, Some(TraceAttr::Skip)) {
         return Ok(quote! {
-            impl #impl_generics ::jrsonnet_gcmodule::Trace for #ident #type_generics #where_clause {
-                fn trace(&self, _tracer: &mut ::jrsonnet_gcmodule::Tracer) {
+            impl #impl_generics ::gcmodule::Trace for #ident #type_generics #where_clause {
+                fn trace(&self, _tracer: &mut ::gcmodule::Tracer) {
                 }
                 fn is_type_tracked() -> bool {
                     false
@@ -232,7 +232,7 @@ fn derive_trace(input: DeriveInput) -> Result<TokenStream2> {
 
             (
                 quote! {
-                    Self#trace
+                    Self #trace
                 },
                 quote! {
                     #is_type_tracked
@@ -275,9 +275,9 @@ fn derive_trace(input: DeriveInput) -> Result<TokenStream2> {
     };
     let is_type_tracked = force_is_type_tracked.unwrap_or(is_type_tracked);
     Ok(quote! {
-        impl #impl_generics ::jrsonnet_gcmodule::Trace for #ident #type_generics #where_clause {
+        impl #impl_generics ::gcmodule::Trace for #ident #type_generics #where_clause {
             #[allow(unused_variables)]
-            fn trace(&self, tracer: &mut ::jrsonnet_gcmodule::Tracer) {
+            fn trace(&self, tracer: &mut ::gcmodule::Tracer) {
                 match self {
                     #trace
                 }
