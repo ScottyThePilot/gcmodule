@@ -15,19 +15,29 @@ use crate::trace::{Trace, Tracer};
 /// struct Y(String);
 /// struct Z<T>(fn (T));
 ///
-/// trace_acyclic!(X);
-/// trace_acyclic!(Y);
-/// trace_acyclic!(<T> Z<T>);
+/// trace_acyclic!{ X };
+/// trace_acyclic!{ Y };
+/// trace_acyclic!{ <T> Z<T> };
 /// ```
+#[macro_export]
 macro_rules! trace_acyclic {
-    ( <$( $g:ident ),*> $( $t: tt )* ) => {
-        impl<$( $g: 'static ),*> $crate::Trace for $($t)* {
+    ( <$( $g:ident ),* $(,)?> $ty:ty ) => {
+        impl<$( $g: 'static ),*> $crate::Trace for $ty {
             #[inline]
-            fn is_type_tracked() -> bool where Self: Sized { false }
+            fn is_type_tracked() -> bool { false }
         }
     };
-    ( $( $t: ty ),* ) => {
-        $( trace_acyclic!(<> $t); )*
+    ( $( $(#[$attr:meta])* $ty: ty ),* $(,)? ) => {
+        $( $(#[$attr])* trace_acyclic!{ <> $ty } )*
+    };
+}
+
+macro_rules! trace_fn_acyclic {
+    ($($arg:ident),* $(,)?) => {
+        trace_acyclic!{ <X, $($arg),*> extern "Rust" fn ($($arg),*) -> X }
+        trace_acyclic!{ <X, $($arg),*> extern "C" fn ($($arg),*) -> X }
+        trace_acyclic!{ <X, $($arg),*> unsafe extern "Rust" fn ($($arg),*) -> X }
+        trace_acyclic!{ <X, $($arg),*> unsafe extern "C" fn ($($arg),*) -> X }
     };
 }
 
@@ -44,13 +54,14 @@ macro_rules! trace_acyclic {
 /// struct Z(Box<dyn Trace>);
 ///
 /// trace_fields!(
-///     X<T1, T2> { a: T1, b: T2 }
-///     Y<T> { 0: T }
+///     X<T1, T2> { a: T1, b: T2 },
+///     Y<T> { 0: T },
 ///     Z { 0 }
 /// );
 /// ```
+#[macro_export]
 macro_rules! trace_fields {
-    ( $( $type:ty { $( $field:tt $(: $tp:ident )? ),* } )* ) => {
+    ( $( $type:ty { $( $field:tt $(: $tp:ident )? ),* $(,)? } ),* $(,)? ) => {
         $(
             impl< $( $( $tp: $crate::Trace )? ),* > $crate::Trace for $type {
                 fn trace(&self, tracer: &mut $crate::Tracer) {
@@ -59,416 +70,402 @@ macro_rules! trace_fields {
                 }
                 #[inline]
                 fn is_type_tracked() -> bool {
-                    $( $( if $tp::is_type_tracked() { return true } )? )*
-                    false
+                    $($($tp::is_type_tracked() || )?)* false
                 }
             }
         )*
     };
 }
 
-trace_acyclic!(bool, char, f32, f64, i16, i32, i64, i8, isize, u16, u32, u64, u8, usize);
-trace_acyclic!(());
-trace_acyclic!(String, &'static str);
+use std::borrow::Cow;
 
-mod tuples {
-    trace_fields!(
-        (A, B) { 0: A, 1: B }
-        (A, B, C) { 0: A, 1: B, 2: C }
-        (A, B, C, D) { 0: A, 1: B, 2: C, 3: D }
-        (A, B, C, D, E) { 0: A, 1: B, 2: C, 3: D, 4: E }
-    );
+trace_acyclic!{
+    (),
+    bool, char,
+    f32, f64,
+    isize, i8, i16, i32, i64, i128,
+    usize, u8, u16, u32, u64, u128,
+    std::sync::atomic::AtomicIsize,
+    std::sync::atomic::AtomicI8,
+    std::sync::atomic::AtomicI16,
+    std::sync::atomic::AtomicI32,
+    std::sync::atomic::AtomicI64,
+    std::sync::atomic::AtomicUsize,
+    std::sync::atomic::AtomicU8,
+    std::sync::atomic::AtomicU16,
+    std::sync::atomic::AtomicU32,
+    std::sync::atomic::AtomicU64,
+    String, Box<str>, &'static str,
+    std::ffi::NulError,
+    std::ffi::CString, Box<std::ffi::CStr>, &'static std::ffi::CStr,
+    std::ffi::OsString, Box<std::ffi::OsStr>, &'static std::ffi::OsStr,
+    std::path::PathBuf, Box<std::path::Path>, &'static std::path::Path,
+    std::net::AddrParseError,
+    std::net::Ipv4Addr,
+    std::net::Ipv6Addr,
+    std::net::SocketAddrV4,
+    std::net::SocketAddrV6,
+    std::net::TcpListener,
+    std::net::TcpStream,
+    std::net::UdpSocket,
+    std::process::Child,
+    std::process::ChildStderr,
+    std::process::ChildStdin,
+    std::process::ChildStdout,
+    std::process::Command,
+    std::process::ExitStatus,
+    std::process::Output,
+    std::process::Stdio
 }
 
-mod borrow {
-    use super::*;
-    use std::borrow::Cow;
+trace_acyclic!{ <T> &'static T }
+trace_acyclic!{ <T> &'static [T] }
+trace_acyclic!{ <T> std::marker::PhantomData<T> }
+trace_acyclic!{ <T> std::thread::JoinHandle<T> }
+trace_acyclic!{ <T> std::thread::LocalKey<T> }
+trace_acyclic!{ std::thread::Thread }
 
-    impl<T: ToOwned + ?Sized> Trace for Cow<'static, T>
-    where
-        T::Owned: Trace,
-    {
-        fn trace(&self, tracer: &mut Tracer) {
-            match self {
-                Cow::Owned(v) => v.trace(tracer),
-                _ => (),
-            }
-        }
-
-        #[inline]
-        fn is_type_tracked() -> bool {
-            T::Owned::is_type_tracked()
-        }
-    }
+trace_fields!{
+    (A,) { 0: A },
+    (A, B) { 0: A, 1: B },
+    (A, B, C) { 0: A, 1: B, 2: C },
+    (A, B, C, D) { 0: A, 1: B, 2: C, 3: D },
+    (A, B, C, D, E) { 0: A, 1: B, 2: C, 3: D, 4: E },
+    (A, B, C, D, E, F) { 0: A, 1: B, 2: C, 3: D, 4: E, 5: F },
+    (A, B, C, D, E, F, G) { 0: A, 1: B, 2: C, 3: D, 4: E, 5: F, 6: G },
+    (A, B, C, D, E, F, G, H) { 0: A, 1: B, 2: C, 3: D, 4: E, 5: F, 6: G, 7: H },
+    (A, B, C, D, E, F, G, H, I) { 0: A, 1: B, 2: C, 3: D, 4: E, 5: F, 6: G, 7: H, 8: I },
+    (A, B, C, D, E, F, G, H, I, J) { 0: A, 1: B, 2: C, 3: D, 4: E, 5: F, 6: G, 7: H, 8: I, 9: J },
+    (A, B, C, D, E, F, G, H, I, J, K) { 0: A, 1: B, 2: C, 3: D, 4: E, 5: F, 6: G, 7: H, 8: I, 9: J, 10: K },
+    (A, B, C, D, E, F, G, H, I, J, K, L) { 0: A, 1: B, 2: C, 3: D, 4: E, 5: F, 6: G, 7: H, 8: I, 9: J, 10: K, 11: L }
 }
 
-mod boxed {
-    use super::*;
-
-    impl<T: Trace> Trace for Box<T> {
-        fn trace(&self, tracer: &mut Tracer) {
-            self.as_ref().trace(tracer);
-        }
-
-        #[inline]
-        fn is_type_tracked() -> bool {
-            T::is_type_tracked()
+impl<T: Trace> Trace for Option<T> {
+    fn trace(&self, tracer: &mut Tracer) {
+        if let Some(ref t) = *self {
+            t.trace(tracer);
         }
     }
 
-    impl Trace for Box<dyn Trace> {
-        fn trace(&self, tracer: &mut Tracer) {
-            self.as_ref().trace(tracer);
-        }
-
-        #[inline]
-        fn is_type_tracked() -> bool {
-            // Trait objects can have complex non-atomic structure.
-            true
-        }
-    }
-
-    impl Trace for Box<dyn Trace + Send> {
-        fn trace(&self, tracer: &mut Tracer) {
-            self.as_ref().trace(tracer);
-        }
-
-        #[inline]
-        fn is_type_tracked() -> bool {
-            true
-        }
-    }
-
-    impl Trace for Box<dyn Trace + Send + Sync> {
-        fn trace(&self, tracer: &mut Tracer) {
-            self.as_ref().trace(tracer);
-        }
-
-        #[inline]
-        fn is_type_tracked() -> bool {
-            true
-        }
+    fn is_type_tracked() -> bool {
+        T::is_type_tracked()
     }
 }
 
-mod cell {
-    use super::*;
-    use std::cell;
-
-    impl<T: Copy + Trace> Trace for cell::Cell<T> {
-        fn trace(&self, tracer: &mut Tracer) {
-            self.get().trace(tracer);
-        }
-
-        #[inline]
-        fn is_type_tracked() -> bool {
-            T::is_type_tracked()
+impl<T: Trace, U: Trace> Trace for Result<T, U> {
+    fn trace(&self, tracer: &mut Tracer) {
+        match *self {
+            Ok(ref t) => t.trace(tracer),
+            Err(ref u) => u.trace(tracer),
         }
     }
 
-    impl<T: Trace> Trace for cell::RefCell<T> {
-        fn trace(&self, tracer: &mut Tracer) {
-            // If the RefCell is currently borrowed we
-            // assume there's an outstanding reference to this
-            // cycle so it's ok if we don't trace through it.
-            // If the borrow gets leaked somehow then we're going
-            // to leak the cycle.
-            if let Ok(x) = self.try_borrow() {
-                x.trace(tracer);
-            }
-        }
-
-        #[inline]
-        fn is_type_tracked() -> bool {
-            T::is_type_tracked()
-        }
+    fn is_type_tracked() -> bool {
+        T::is_type_tracked() || U::is_type_tracked()
     }
 }
 
-mod collections {
-    use super::*;
-    use std::collections;
-
-    impl<K: Trace, V: Trace> Trace for collections::BTreeMap<K, V> {
-        fn trace(&self, tracer: &mut Tracer) {
-            for (k, v) in self {
-                k.trace(tracer);
-                v.trace(tracer);
-            }
-        }
-
-        #[inline]
-        fn is_type_tracked() -> bool {
-            K::is_type_tracked() || V::is_type_tracked()
+impl<T: Trace, const N: usize> Trace for [T; N] {
+    fn trace(&self, tracer: &mut Tracer) {
+        for t in self {
+            t.trace(tracer);
         }
     }
 
-    impl<T: Trace> Trace for collections::BTreeSet<T> {
-        fn trace(&self, tracer: &mut Tracer) {
-            for t in self {
-                t.trace(tracer);
-            }
-        }
-
-        fn is_type_tracked() -> bool {
-            T::is_type_tracked()
-        }
-    }
-
-    impl<K: Trace, V: Trace, B: 'static> Trace for collections::HashMap<K, V, B> {
-        fn trace(&self, tracer: &mut Tracer) {
-            for (k, v) in self {
-                k.trace(tracer);
-                v.trace(tracer);
-            }
-        }
-
-        #[inline]
-        fn is_type_tracked() -> bool {
-            K::is_type_tracked() || V::is_type_tracked()
-        }
-    }
-
-    impl<T: Trace, B: 'static> Trace for collections::HashSet<T, B> {
-        fn trace(&self, tracer: &mut Tracer) {
-            for t in self {
-                t.trace(tracer);
-            }
-        }
-
-        #[inline]
-        fn is_type_tracked() -> bool {
-            T::is_type_tracked()
-        }
-    }
-
-    impl<T: Trace> Trace for collections::LinkedList<T> {
-        fn trace(&self, tracer: &mut Tracer) {
-            for t in self {
-                t.trace(tracer);
-            }
-        }
-
-        #[inline]
-        fn is_type_tracked() -> bool {
-            T::is_type_tracked()
-        }
-    }
-
-    impl<T: Trace> Trace for collections::VecDeque<T> {
-        fn trace(&self, tracer: &mut Tracer) {
-            for t in self {
-                t.trace(tracer);
-            }
-        }
-
-        #[inline]
-        fn is_type_tracked() -> bool {
-            T::is_type_tracked()
-        }
+    fn is_type_tracked() -> bool {
+        T::is_type_tracked()
     }
 }
 
-mod vec {
-    use super::*;
-    impl<T: Trace> Trace for Vec<T> {
-        fn trace(&self, tracer: &mut Tracer) {
-            for t in self {
-                t.trace(tracer);
-            }
-        }
-
-        #[inline]
-        fn is_type_tracked() -> bool {
-            T::is_type_tracked()
-        }
-    }
-}
-
-// See https://github.com/rust-lang/rust/issues/56105#issuecomment-465709105
-#[allow(unknown_lints)]
-#[allow(coherence_leak_check)]
-mod func {
-    trace_acyclic!(<X> fn() -> X);
-
-    trace_acyclic!(<A, X> fn(&A) -> X);
-    trace_acyclic!(<A, X> fn(A) -> X);
-
-    trace_acyclic!(<A, B, X> fn(&A, &B) -> X);
-    trace_acyclic!(<A, B, X> fn(A, &B) -> X);
-    trace_acyclic!(<A, B, X> fn(&A, B) -> X);
-    trace_acyclic!(<A, B, X> fn(A, B) -> X);
-
-    trace_acyclic!(<A, B, C, X> fn(&A, &B, &C) -> X);
-    trace_acyclic!(<A, B, C, X> fn(A, &B, &C) -> X);
-    trace_acyclic!(<A, B, C, X> fn(&A, B, &C) -> X);
-    trace_acyclic!(<A, B, C, X> fn(A, B, &C) -> X);
-    trace_acyclic!(<A, B, C, X> fn(&A, &B, C) -> X);
-    trace_acyclic!(<A, B, C, X> fn(A, &B, C) -> X);
-    trace_acyclic!(<A, B, C, X> fn(&A, B, C) -> X);
-    trace_acyclic!(<A, B, C, X> fn(A, B, C) -> X);
-
-    trace_acyclic!(<A, B, C, D, X> fn(&A, &B, &C, &D) -> X);
-    trace_acyclic!(<A, B, C, D, X> fn(A, &B, &C, &D) -> X);
-    trace_acyclic!(<A, B, C, D, X> fn(&A, B, &C, &D) -> X);
-    trace_acyclic!(<A, B, C, D, X> fn(A, B, &C, &D) -> X);
-    trace_acyclic!(<A, B, C, D, X> fn(&A, &B, C, &D) -> X);
-    trace_acyclic!(<A, B, C, D, X> fn(A, &B, C, &D) -> X);
-    trace_acyclic!(<A, B, C, D, X> fn(&A, B, C, &D) -> X);
-    trace_acyclic!(<A, B, C, D, X> fn(A, B, C, &D) -> X);
-    trace_acyclic!(<A, B, C, D, X> fn(&A, &B, &C, D) -> X);
-    trace_acyclic!(<A, B, C, D, X> fn(A, &B, &C, D) -> X);
-    trace_acyclic!(<A, B, C, D, X> fn(&A, B, &C, D) -> X);
-    trace_acyclic!(<A, B, C, D, X> fn(A, B, &C, D) -> X);
-    trace_acyclic!(<A, B, C, D, X> fn(&A, &B, C, D) -> X);
-    trace_acyclic!(<A, B, C, D, X> fn(A, &B, C, D) -> X);
-    trace_acyclic!(<A, B, C, D, X> fn(&A, B, C, D) -> X);
-    trace_acyclic!(<A, B, C, D, X> fn(A, B, C, D) -> X);
-
-    trace_acyclic!(<A, B, C, D, E, X> fn(A, B, C, D, E) -> X);
-    trace_acyclic!(<A, B, C, D, E, F, X> fn(A, B, C, D, E, F) -> X);
-}
-
-mod ffi {
-    use std::ffi;
-
-    trace_acyclic!(ffi::CString, ffi::NulError, ffi::OsString);
-}
-
-mod net {
-    use std::net;
-
-    trace_acyclic!(
-        net::AddrParseError,
-        net::Ipv4Addr,
-        net::Ipv6Addr,
-        net::SocketAddrV4,
-        net::SocketAddrV6,
-        net::TcpListener,
-        net::TcpStream,
-        net::UdpSocket
-    );
-}
-
-mod option {
-    use super::*;
-
-    impl<T: Trace> Trace for Option<T> {
-        fn trace(&self, tracer: &mut Tracer) {
-            if let Some(ref t) = *self {
-                t.trace(tracer);
-            }
-        }
-
-        fn is_type_tracked() -> bool {
-            T::is_type_tracked()
-        }
-    }
-}
-
-mod path {
-    use std::path;
-
-    trace_acyclic!(path::PathBuf);
-}
-
-mod process {
-    use std::process;
-
-    trace_acyclic!(
-        process::Child,
-        process::ChildStderr,
-        process::ChildStdin,
-        process::ChildStdout,
-        process::Command,
-        process::ExitStatus,
-        process::Output,
-        process::Stdio
-    );
-}
-
-mod rc {
-    use std::rc;
-
-    trace_acyclic!(<T> rc::Rc<T>);
-    trace_acyclic!(<T> rc::Weak<T>);
-}
-
-mod result {
-    use super::*;
-
-    impl<T: Trace, U: Trace> Trace for Result<T, U> {
-        fn trace(&self, tracer: &mut Tracer) {
-            match *self {
-                Ok(ref t) => t.trace(tracer),
-                Err(ref u) => u.trace(tracer),
-            }
-        }
-
-        fn is_type_tracked() -> bool {
-            T::is_type_tracked() || U::is_type_tracked()
-        }
-    }
-}
-
-mod sync {
-    use super::*;
-    use std::sync;
-
-    // See comment in Mutex for why this is acyclic.
-    trace_acyclic!(<T> sync::Arc<T>);
-
-    impl<T: Trace> Trace for sync::Mutex<T> {
-        fn trace(&self, tracer: &mut Tracer) {
-            // For single-thread collector (ObjectSpace):
-            // Locking is optional. See RefCell.
-            //
-            // For multi-thread collector (ThreadedObjectSpace):
-            // `ThreadedCcRef` is expected to be the only way to access a `T`
-            // stored in `ThreadedCc<T>`. `ThreadedCcRef` takes a lock so
-            // collector does not run. When the collector runs, `ThreadedCcRef`
-            // are dropped so locks are released.
-            // A special is when `T` is `Arc<Mutex<M>>`. It allows mutating `M`
-            // without going through `ThreadedCcRef`. This is handled by marking
-            // `Arc` as acyclic. The collector only cares about `trace`, and
-            // `trace` result for an `Arc` cannot be changed by another thread,
-            // even if `M` is mutable.
-            if let Ok(x) = self.try_lock() {
-                x.trace(tracer);
-            }
-        }
-
-        #[inline]
-        fn is_type_tracked() -> bool {
-            T::is_type_tracked()
+impl<T: Trace> Trace for Vec<T> {
+    fn trace(&self, tracer: &mut Tracer) {
+        for t in self {
+            t.trace(tracer);
         }
     }
 
-    impl<T: Trace> Trace for sync::RwLock<T> {
-        fn trace(&self, tracer: &mut Tracer) {
-            // See Mutex for why locking is optional.
-            //
-            // If read or write locks are already taken, that indicates
-            // outstanding references that keeps the objects alive.
-            if let Ok(x) = self.try_write() {
-                x.trace(tracer);
-            }
-        }
-
-        #[inline]
-        fn is_type_tracked() -> bool {
-            T::is_type_tracked()
-        }
+    #[inline]
+    fn is_type_tracked() -> bool {
+        T::is_type_tracked()
     }
 }
 
-mod thread {
-    use std::thread;
+impl<T: ToOwned + ?Sized> Trace for Cow<'static, T>
+where T::Owned: Trace {
+    fn trace(&self, tracer: &mut Tracer) {
+        match self {
+            Cow::Owned(v) => v.trace(tracer),
+            Cow::Borrowed(..) => (),
+        }
+    }
 
-    trace_acyclic!(<T> thread::JoinHandle<T>);
-    trace_acyclic!(<T> thread::LocalKey<T>);
-    trace_acyclic!(thread::Thread);
+    #[inline]
+    fn is_type_tracked() -> bool {
+        T::Owned::is_type_tracked()
+    }
 }
+
+impl<T: Trace> Trace for Box<T> {
+    fn trace(&self, tracer: &mut Tracer) {
+        self.as_ref().trace(tracer);
+    }
+
+    #[inline]
+    fn is_type_tracked() -> bool {
+        T::is_type_tracked()
+    }
+}
+
+impl<T: Trace> Trace for Box<[T]> {
+    fn trace(&self, tracer: &mut Tracer) {
+        for t in self.as_ref() {
+            t.trace(tracer);
+        }
+    }
+
+    #[inline]
+    fn is_type_tracked() -> bool {
+        T::is_type_tracked()
+    }
+}
+
+impl Trace for Box<dyn Trace> {
+    fn trace(&self, tracer: &mut Tracer) {
+        self.as_ref().trace(tracer);
+    }
+
+    #[inline]
+    fn is_type_tracked() -> bool {
+        // Trait objects can have complex non-atomic structure.
+        true
+    }
+}
+
+impl Trace for Box<dyn Trace + Send> {
+    fn trace(&self, tracer: &mut Tracer) {
+        self.as_ref().trace(tracer);
+    }
+
+    #[inline]
+    fn is_type_tracked() -> bool {
+        true
+    }
+}
+
+impl Trace for Box<dyn Trace + Send + Sync> {
+    fn trace(&self, tracer: &mut Tracer) {
+        self.as_ref().trace(tracer);
+    }
+
+    #[inline]
+    fn is_type_tracked() -> bool {
+        true
+    }
+}
+
+impl<T: Copy + Trace> Trace for std::cell::Cell<T> {
+    fn trace(&self, tracer: &mut Tracer) {
+        self.get().trace(tracer);
+    }
+
+    #[inline]
+    fn is_type_tracked() -> bool {
+        T::is_type_tracked()
+    }
+}
+
+impl<T: Trace> Trace for std::cell::RefCell<T> {
+    fn trace(&self, tracer: &mut Tracer) {
+        // If the RefCell is currently borrowed we
+        // assume there's an outstanding reference to this
+        // cycle so it's ok if we don't trace through it.
+        // If the borrow gets leaked somehow then we're going
+        // to leak the cycle.
+        if let Ok(x) = self.try_borrow() {
+            x.trace(tracer);
+        }
+    }
+
+    #[inline]
+    fn is_type_tracked() -> bool {
+        T::is_type_tracked()
+    }
+}
+
+impl<K: Trace, V: Trace> Trace for std::collections::BTreeMap<K, V> {
+    fn trace(&self, tracer: &mut Tracer) {
+        for (k, v) in self {
+            k.trace(tracer);
+            v.trace(tracer);
+        }
+    }
+
+    #[inline]
+    fn is_type_tracked() -> bool {
+        K::is_type_tracked() || V::is_type_tracked()
+    }
+}
+
+impl<T: Trace> Trace for std::collections::BTreeSet<T> {
+    fn trace(&self, tracer: &mut Tracer) {
+        for t in self {
+            t.trace(tracer);
+        }
+    }
+
+    fn is_type_tracked() -> bool {
+        T::is_type_tracked()
+    }
+}
+
+impl<T: Trace> Trace for std::collections::BinaryHeap<T> {
+    fn trace(&self, tracer: &mut Tracer) {
+        for t in self {
+            t.trace(tracer);
+        }
+    }
+
+    fn is_type_tracked() -> bool {
+        T::is_type_tracked()
+    }
+}
+
+impl<K: Trace, V: Trace, B: 'static> Trace for std::collections::HashMap<K, V, B> {
+    fn trace(&self, tracer: &mut Tracer) {
+        for (k, v) in self {
+            k.trace(tracer);
+            v.trace(tracer);
+        }
+    }
+
+    #[inline]
+    fn is_type_tracked() -> bool {
+        K::is_type_tracked() || V::is_type_tracked()
+    }
+}
+
+impl<T: Trace, B: 'static> Trace for std::collections::HashSet<T, B> {
+    fn trace(&self, tracer: &mut Tracer) {
+        for t in self {
+            t.trace(tracer);
+        }
+    }
+
+    #[inline]
+    fn is_type_tracked() -> bool {
+        T::is_type_tracked()
+    }
+}
+
+impl<T: Trace> Trace for std::collections::LinkedList<T> {
+    fn trace(&self, tracer: &mut Tracer) {
+        for t in self {
+            t.trace(tracer);
+        }
+    }
+
+    #[inline]
+    fn is_type_tracked() -> bool {
+        T::is_type_tracked()
+    }
+}
+
+impl<T: Trace> Trace for std::collections::VecDeque<T> {
+    fn trace(&self, tracer: &mut Tracer) {
+        for t in self {
+            t.trace(tracer);
+        }
+    }
+
+    #[inline]
+    fn is_type_tracked() -> bool {
+        T::is_type_tracked()
+    }
+}
+
+trace_acyclic!{ <T> std::rc::Rc<T> }
+trace_acyclic!{ <T> std::rc::Weak<T> }
+trace_acyclic!{ <T> std::rc::Rc<[T]> }
+trace_acyclic!{ <T> std::rc::Weak<[T]> }
+trace_acyclic!{
+    std::rc::Rc<std::ffi::CStr>,
+    std::rc::Rc<std::ffi::OsStr>,
+    std::rc::Rc<std::path::Path>,
+    std::rc::Weak<std::ffi::CStr>,
+    std::rc::Weak<std::ffi::OsStr>,
+    std::rc::Weak<std::path::Path>
+}
+
+// See comment in Mutex for why this is acyclic.
+trace_acyclic!{ <T> std::sync::Arc<T> }
+trace_acyclic!{ <T> std::sync::Weak<T> }
+trace_acyclic!{ <T> std::sync::Arc<[T]> }
+trace_acyclic!{ <T> std::sync::Weak<[T]> }
+trace_acyclic!{
+    std::sync::Arc<std::ffi::CStr>,
+    std::sync::Arc<std::ffi::OsStr>,
+    std::sync::Arc<std::path::Path>,
+    std::sync::Weak<std::ffi::CStr>,
+    std::sync::Weak<std::ffi::OsStr>,
+    std::sync::Weak<std::path::Path>
+}
+
+impl<T: Trace> Trace for std::sync::Mutex<T> {
+    fn trace(&self, tracer: &mut Tracer) {
+        // For single-thread collector (ObjectSpace):
+        // Locking is optional. See RefCell.
+        //
+        // For multi-thread collector (ThreadedObjectSpace):
+        // `ThreadedCcRef` is expected to be the only way to access a `T`
+        // stored in `ThreadedCc<T>`. `ThreadedCcRef` takes a lock so
+        // collector does not run. When the collector runs, `ThreadedCcRef`
+        // are dropped so locks are released.
+        // A special is when `T` is `Arc<Mutex<M>>`. It allows mutating `M`
+        // without going through `ThreadedCcRef`. This is handled by marking
+        // `Arc` as acyclic. The collector only cares about `trace`, and
+        // `trace` result for an `Arc` cannot be changed by another thread,
+        // even if `M` is mutable.
+        if let Ok(x) = self.try_lock() {
+            x.trace(tracer);
+        }
+    }
+
+    #[inline]
+    fn is_type_tracked() -> bool {
+        T::is_type_tracked()
+    }
+}
+
+impl<T: Trace> Trace for std::sync::RwLock<T> {
+    fn trace(&self, tracer: &mut Tracer) {
+        // See Mutex for why locking is optional.
+        //
+        // If read or write locks are already taken, that indicates
+        // outstanding references that keeps the objects alive.
+        if let Ok(x) = self.try_write() {
+            x.trace(tracer);
+        }
+    }
+
+    #[inline]
+    fn is_type_tracked() -> bool {
+        T::is_type_tracked()
+    }
+}
+
+trace_fn_acyclic!{}
+trace_fn_acyclic!{ A }
+trace_fn_acyclic!{ A, B }
+trace_fn_acyclic!{ A, B, C }
+trace_fn_acyclic!{ A, B, C, D }
+trace_fn_acyclic!{ A, B, C, D, E }
+trace_fn_acyclic!{ A, B, C, D, E, F }
+trace_fn_acyclic!{ A, B, C, D, E, F, G }
+trace_fn_acyclic!{ A, B, C, D, E, F, G, H }
+trace_fn_acyclic!{ A, B, C, D, E, F, G, H, I }
+trace_fn_acyclic!{ A, B, C, D, E, F, G, H, I, J }
+trace_fn_acyclic!{ A, B, C, D, E, F, G, H, I, J, K }
+trace_fn_acyclic!{ A, B, C, D, E, F, G, H, I, J, K, L }
 
 #[cfg(test)]
 mod tests {
@@ -495,7 +492,6 @@ mod tests {
         assert!(!Vec::<Cc::<u8>>::is_type_tracked());
 
         assert!(!<fn(u8) -> u8>::is_type_tracked());
-        assert!(!<fn(&u8) -> u8>::is_type_tracked());
     }
 
     #[test]
