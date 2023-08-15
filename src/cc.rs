@@ -392,6 +392,12 @@ impl<T: ?Sized, O: AbstractObjectSpace> RawCc<T, O> {
     pub fn ptr_eq(this: &Self, other: &Self) -> bool {
         this.0.as_ptr() == other.0.as_ptr()
     }
+
+    /// Provides a raw pointer to the underlying data.
+    #[inline]
+    pub fn as_ptr(this: &Self) -> *const T {
+        this.0.as_ptr() as *const T
+    }
 }
 
 impl<T: ?Sized, O: AbstractObjectSpace> RawWeak<T, O> {
@@ -432,6 +438,12 @@ impl<T: ?Sized, O: AbstractObjectSpace> RawWeak<T, O> {
     #[inline]
     pub fn ptr_eq(this: &Self, other: &Self) -> bool {
         this.0.as_ptr() == other.0.as_ptr()
+    }
+
+    /// Provides a raw pointer to the underlying data.
+    #[inline]
+    pub fn as_ptr(this: &Self) -> *const T {
+        this.0.as_ptr() as *const T
     }
 }
 
