@@ -259,6 +259,8 @@
 //! undefined behavior. Again, the UB can only happen if the [`Trace::trace`](trait.Trace.html#method.trace)
 //! is implemented wrong, and panic will happen before the UB.
 
+extern crate self as jrsonnet_gcmodule;
+
 mod cc;
 mod cc_impls;
 mod collect;
@@ -312,9 +314,10 @@ pub use jrsonnet_gcmodule_derive::Trace;
 
 #[cfg(not(test))]
 mod debug {
-    use std::cell::Cell;
-    thread_local!(pub(crate) static NEXT_DEBUG_NAME: Cell<usize> = Default::default());
-    thread_local!(pub(crate) static GC_DROPPING: Cell<bool> = Cell::new(false));
+    #[cfg(any(feature = "debug", test))]
+    thread_local!(pub(crate) static NEXT_DEBUG_NAME: std::cell::Cell<usize> = Default::default());
+    #[cfg(any(feature = "debug", test))]
+    thread_local!(pub(crate) static GC_DROPPING: std::cell::Cell<bool> = Cell::new(false));
     pub(crate) fn log<S1: ToString, S2: ToString>(func: impl Fn() -> (S1, S2)) {
         if cfg!(feature = "debug") {
             let (name, message) = func();
@@ -325,3 +328,89 @@ mod debug {
 
 /// Whether the `debug` feature is enabled.
 pub const DEBUG_ENABLED: bool = cfg!(feature = "debug");
+
+/// Jrsonnet golang bindings require that it is possible to move jsonnet
+/// VM between OS threads, and this is not possible due to usage of
+/// `thread_local`. Instead, there is two methods added, one should be
+/// called at the end of current thread work, and one that should be
+/// used when using other thread.
+// It won't be able to preserve debug state.
+#[cfg(not(any(test, feature = "debug")))]
+pub mod interop {
+    use std::mem;
+    use std::pin::Pin;
+
+    use crate::collect::{new_gc_list, GcHeader, THREAD_OBJECT_SPACE};
+
+    /// Type-erased gc object list
+    pub enum GcState {}
+
+    type UnerasedState = Pin<Box<GcHeader>>;
+
+    /// Dump current interned string pool, to be restored by
+    /// `reenter_thread`
+    ///
+    /// # Safety
+    ///
+    /// Current thread gc becomes broken after this call, you should not use gc after this
+    /// call, and before `reenter_thread` call.
+    pub unsafe fn exit_thread() -> *mut GcState {
+        let object_list: UnerasedState = THREAD_OBJECT_SPACE
+            .with(|space| mem::replace(&mut *space.list.borrow_mut(), new_gc_list()));
+        Box::into_raw(Box::new(object_list)).cast()
+    }
+
+    /// Reenter thread, using state dumped by `exit_thread`.
+    ///
+    /// # Safety
+    ///
+    /// `state` should be acquired from `exit_thread`, it is not allowed
+    /// to reuse state to reenter multiple threads.
+    pub unsafe fn reenter_thread(state: *mut GcState) {
+        let ptr: *mut UnerasedState = state.cast();
+        // SAFETY: ptr is an unique state per method safety requirements.
+        let ptr: Box<UnerasedState> = unsafe { Box::from_raw(ptr) };
+        let ptr: UnerasedState = *ptr;
+        THREAD_OBJECT_SPACE.with(|space| {
+            let _ = mem::replace(&mut *space.list.borrow_mut(), ptr);
+        });
+    }
+}
+
+#[cfg(test)]
+mod dyn_cc {
+    use crate::Trace;
+    use std::fmt::Debug;
+    use std::ops::Deref;
+
+    use crate::{cc_dyn, Cc};
+
+    #[derive(Debug, Trace)]
+    struct Test {
+        a: String,
+    }
+
+    trait DebugAndTrace: Debug + Trace {}
+    impl<T> DebugAndTrace for T where T: Debug + Trace {}
+    cc_dyn!(cc_debug_and_trace, DebugAndTrace);
+
+    #[test]
+    fn test_dyn() {
+        let test = Test {
+            a: "hello".to_owned(),
+        };
+
+        let dyncc = cc_debug_and_trace(Cc::new(test));
+        assert_eq!(format!("{dyncc:?}"), "Cc(Test { a: \"hello\" })");
+        let dyncc_is_trace = Cc::new(dyncc);
+        assert_eq!(
+            format!("{dyncc_is_trace:?}"),
+            "Cc(Cc(Test { a: \"hello\" }))"
+        );
+        let dyncc_is_trace_as_dyn: Cc<dyn DebugAndTrace> = cc_debug_and_trace(dyncc_is_trace);
+        assert_eq!(
+            format!("{dyncc_is_trace_as_dyn:?}"),
+            "Cc(Cc(Test { a: \"hello\" }))"
+        );
+    }
+}
