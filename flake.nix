@@ -15,22 +15,14 @@
       system: let
         pkgs = import nixpkgs {
           inherit system;
-          overlays = [rust-overlay.overlay];
-          config.allowUnfree = true;
+          overlays = [rust-overlay.overlays.default];
         };
-        rust =
-          (pkgs.rustChannelOf {
-            date = "2023-05-09";
-            channel = "nightly";
-          })
-          .default
-          .override {
-            extensions = ["rust-analyzer" "rust-src" "clippy"];
-          };
-      in rec {
+        rust = pkgs.rust-bin.fromRustupToolchainFile ./rust-toolchain.toml;
+      in {
         devShell = pkgs.mkShell {
           nativeBuildInputs = with pkgs; [
             rust
+            cargo-edit
             valgrind
           ];
         };

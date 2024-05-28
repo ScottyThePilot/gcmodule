@@ -445,17 +445,17 @@ fn restore_prev<L: Linked>(list: &L) {
 }
 
 fn is_unreachable<L: Linked>(header: &L) -> bool {
-    let prev = header.prev() as *const L as usize;
+    let prev = header.prev() as usize;
     is_collecting(header) && (prev >> PREV_SHIFT) == 0
 }
 
 pub(crate) fn is_collecting<L: Linked>(header: &L) -> bool {
-    let prev = header.prev() as *const L as usize;
+    let prev = header.prev() as usize;
     (prev & PREV_MASK_COLLECTING) != 0
 }
 
 fn set_visited<L: Linked>(header: &L) -> bool {
-    let prev = header.prev() as *const L as usize;
+    let prev = header.prev() as usize;
     let visited = (prev & PREV_MASK_VISITED) != 0;
     debug_assert!(
         !visited,
@@ -468,13 +468,13 @@ fn set_visited<L: Linked>(header: &L) -> bool {
 }
 
 fn unset_collecting<L: Linked>(header: &L) {
-    let prev = header.prev() as *const L as usize;
+    let prev = header.prev() as usize;
     let new_prev = (prev & PREV_MASK_COLLECTING) ^ prev;
     header.set_prev(new_prev as _);
 }
 
 fn edit_gc_ref_count<L: Linked>(header: &L, delta: isize) {
-    let prev = header.prev() as *const L as isize;
+    let prev = header.prev() as isize;
     let new_prev = prev + (1 << PREV_SHIFT) * delta;
     header.set_prev(new_prev as _);
 }

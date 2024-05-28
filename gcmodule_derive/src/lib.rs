@@ -90,7 +90,7 @@ where
 {
     let attrs = attrs
         .iter()
-        .filter(|a| a.path.is_ident(&ident))
+        .filter(|a| a.path().is_ident(&ident))
         .collect::<Vec<_>>();
     if attrs.len() > 1 {
         return Err(Error::new(

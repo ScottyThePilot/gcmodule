@@ -418,7 +418,7 @@ impl<T: ?Sized, O: AbstractObjectSpace> RawCc<T, O> {
     /// Returns `true` if the two `Cc`s point to the same allocation
     #[inline]
     pub fn ptr_eq(this: &Self, other: &Self) -> bool {
-        this.0.as_ptr() == other.0.as_ptr()
+        std::ptr::addr_eq(this.0.as_ptr(), other.0.as_ptr())
     }
 }
 
@@ -459,7 +459,7 @@ impl<T: ?Sized, O: AbstractObjectSpace> RawWeak<T, O> {
     /// Returns `true` if the two `Weak`s point to the same allocation
     #[inline]
     pub fn ptr_eq(this: &Self, other: &Self) -> bool {
-        this.0.as_ptr() == other.0.as_ptr()
+        std::ptr::addr_eq(this.0.as_ptr(), other.0.as_ptr())
     }
 }
 

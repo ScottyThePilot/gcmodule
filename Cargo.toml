@@ -22,7 +22,7 @@ quickcheck = { version = "1.0", default-features = false }
 
 [dependencies]
 jrsonnet-gcmodule-derive = { version = "0.3.6", optional = true, path = "gcmodule_derive" }
-parking_lot = { version = "0.12.1", optional = true }
+parking_lot = { version = "0.12.3", optional = true }
 
 [features]
 default = ["derive", "sync"]
