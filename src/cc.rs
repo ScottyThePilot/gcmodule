@@ -232,6 +232,34 @@ impl<T: Trace, O: AbstractObjectSpace> RawCc<T, O> {
     }
 }
 
+/// Create Cc<dyn Trait> from Cc<T> where T: impl Trait, Trait is trait object
+#[macro_export]
+macro_rules! cc_dyn {
+    ($conv:ident, $t:path) => {
+        impl $crate::Trace for $crate::Cc<dyn $t> {
+            fn trace(&self, tracer: &mut $crate::Tracer) {
+                $crate::Cc::<dyn $t>::trace(self, tracer)
+            }
+            #[inline]
+            fn is_type_tracked() -> bool {
+                // Trait objects can be anything
+                true
+            }
+        }
+        fn $conv<T: $t, O: $crate::collect::AbstractObjectSpace>(
+            input: $crate::RawCc<T, O>,
+        ) -> $crate::RawCc<dyn $t, O> {
+            unsafe {
+                let cc: $crate::RawCc<_, _> = input;
+                let mut fat_ptr: [usize; 2] = core::mem::transmute(cc.inner().deref() as &dyn $t);
+                let self_ptr: usize = core::mem::transmute(cc);
+                fat_ptr[0] = self_ptr;
+                core::mem::transmute::<_, $crate::RawCc<dyn $t, _>>(fat_ptr)
+            }
+        }
+    };
+}
+
 impl<T: Trace + Clone> Cc<T> {
     /// Update the value `T` in a copy-on-write way.
     ///
