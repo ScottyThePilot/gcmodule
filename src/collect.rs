@@ -107,8 +107,8 @@ impl AbstractObjectSpace for ObjectSpace {
         let header: &GcHeader = header;
         debug_assert!(!header.next.get().is_null());
         debug_assert!(!header.prev.get().is_null());
-        let next = header.next.get();
-        let prev = header.prev.get();
+        let next = unmask_ptr(header.next.get());
+        let prev = unmask_ptr(header.prev.get());
         // safety: The linked list is maintained. Pointers in it are valid.
         unsafe {
             (*prev).next.set(next);
@@ -286,9 +286,15 @@ pub(crate) fn visit_list<'a, L: Linked>(list: &'a L, mut func: impl FnMut(&'a L)
     }
 }
 
+const PTR_MASK: usize = usize::MAX & !(0b11);
 const PREV_MASK_COLLECTING: usize = 1;
 const PREV_MASK_VISITED: usize = 2;
 const PREV_SHIFT: u32 = 2;
+
+#[inline]
+fn unmask_ptr<T>(ptr: *const T) -> *const T {
+    ((ptr as usize) & PTR_MASK) as *const T
+}
 
 /// Temporarily use `GcHeader.prev` as `gc_ref_count`.
 /// Idea comes from https://bugs.python.org/issue33597.

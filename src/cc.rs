@@ -645,6 +645,11 @@ impl<T: Trace + ?Sized, O: AbstractObjectSpace> CcDyn for RawCcBox<T, O> {
     }
 
     fn gc_traverse(&self, tracer: &mut Tracer) {
+        // CcBox might be alive here due to weak references, despite no strong references available.
+        // We don't have T to traverse in this case.
+        if self.is_dropped() {
+            return;
+        }
         debug::log(|| (self.debug_name(), "gc_traverse"));
         T::trace(self.deref(), tracer)
     }
