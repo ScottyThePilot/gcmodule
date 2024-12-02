@@ -392,7 +392,7 @@ mod dyn_cc {
 
     trait DebugAndTrace: Debug + Trace {}
     impl<T> DebugAndTrace for T where T: Debug + Trace {}
-    cc_dyn!(cc_debug_and_trace, DebugAndTrace);
+    cc_dyn!(CcDebugAndTrace, DebugAndTrace);
 
     #[test]
     fn test_dyn() {
@@ -400,14 +400,14 @@ mod dyn_cc {
             a: "hello".to_owned(),
         };
 
-        let dyncc = cc_debug_and_trace(Cc::new(test));
+        let dyncc = CcDebugAndTrace::new(test);
         assert_eq!(format!("{dyncc:?}"), "Cc(Test { a: \"hello\" })");
-        let dyncc_is_trace = Cc::new(dyncc);
+        let dyncc_is_trace = dyncc;
         assert_eq!(
             format!("{dyncc_is_trace:?}"),
             "Cc(Cc(Test { a: \"hello\" }))"
         );
-        let dyncc_is_trace_as_dyn: Cc<dyn DebugAndTrace> = cc_debug_and_trace(dyncc_is_trace);
+        let dyncc_is_trace_as_dyn = CcDebugAndTrace::new(dyncc_is_trace);
         assert_eq!(
             format!("{dyncc_is_trace_as_dyn:?}"),
             "Cc(Cc(Test { a: \"hello\" }))"

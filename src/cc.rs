@@ -36,7 +36,8 @@ use std::ptr::NonNull;
 
 /// The data shared by multiple `RawCc<T, O>` pointers.
 #[repr(C)]
-pub(crate) struct RawCcBox<T: ?Sized, O: AbstractObjectSpace> {
+#[doc(hidden)]
+pub struct RawCcBox<T: ?Sized, O: AbstractObjectSpace> {
     pub(crate) ref_count: O::RefCount,
 
     #[cfg(test)]
@@ -235,10 +236,13 @@ impl<T: Trace, O: AbstractObjectSpace> RawCc<T, O> {
 /// Create Cc<dyn Trait> from Cc<T> where T: impl Trait, Trait is trait object
 #[macro_export]
 macro_rules! cc_dyn {
-    ($conv:ident, $t:path) => {
-        impl $crate::Trace for $crate::Cc<dyn $t> {
+    ($(#[$($meta:meta)+])* $conv:ident, $t:path $(, $new_vis:vis fn new() {...})?) => {
+        $(#[$($meta)+])*
+        #[repr(transparent)]
+        pub struct $conv($crate::Cc<dyn $t>);
+        impl $crate::Trace for $conv {
             fn trace(&self, tracer: &mut $crate::Tracer) {
-                $crate::Cc::<dyn $t>::trace(self, tracer)
+                $crate::Cc::<dyn $t>::trace(&self.0, tracer)
             }
             #[inline]
             fn is_type_tracked() -> bool {
@@ -246,15 +250,17 @@ macro_rules! cc_dyn {
                 true
             }
         }
-        fn $conv<T: $t, O: $crate::collect::AbstractObjectSpace>(
-            input: $crate::RawCc<T, O>,
-        ) -> $crate::RawCc<dyn $t, O> {
-            unsafe {
-                let cc: $crate::RawCc<_, _> = input;
-                let mut fat_ptr: [usize; 2] = core::mem::transmute(cc.inner().deref() as &dyn $t);
-                let self_ptr: usize = core::mem::transmute(cc);
-                fat_ptr[0] = self_ptr;
-                core::mem::transmute::<_, $crate::RawCc<dyn $t, _>>(fat_ptr)
+        impl $conv {
+            $($new_vis)? fn new<T: $t + $crate::Trace>(input: T) -> Self {
+                use std::ops::Deref;
+                unsafe {
+                    let cc: $crate::RawCc<_, _> = $crate::Cc::new(input);
+                    let mut fat_ptr: [usize; 2] =
+                        core::mem::transmute(cc.inner().deref() as &dyn $t);
+                    let self_ptr: usize = core::mem::transmute(cc);
+                    fat_ptr[0] = self_ptr;
+                    $conv(core::mem::transmute::<[usize; 2], $crate::RawCc<dyn $t, _>>(fat_ptr))
+                }
             }
         }
     };
@@ -465,7 +471,8 @@ impl<T: ?Sized, O: AbstractObjectSpace> RawWeak<T, O> {
 
 impl<T: ?Sized, O: AbstractObjectSpace> RawCc<T, O> {
     #[inline]
-    pub(crate) fn inner(&self) -> &RawCcBox<T, O> {
+    #[doc(hidden)]
+    pub fn inner(&self) -> &RawCcBox<T, O> {
         // safety: CcBox lifetime maintained by ref count. Pointer is valid.
         unsafe { self.0.as_ref() }
     }
