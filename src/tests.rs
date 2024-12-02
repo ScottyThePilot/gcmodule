@@ -1,5 +1,5 @@
 use crate::testutil::test_small_graph;
-use crate::{collect, Cc, Trace, Tracer};
+use crate::{collect, collect_thread_cycles, Cc, Trace, Tracer};
 use crate::{debug, with_thread_object_space, Weak};
 use std::cell::Cell;
 use std::cell::RefCell;
@@ -547,4 +547,43 @@ quickcheck::quickcheck! {
         test_small_graph(16, &edges, atomic_bits, collect_bits);
         true
     }
+}
+#[derive(Debug, Clone)]
+pub struct TraceBox<T: ?Sized>(pub Box<T>);
+
+impl<T: ?Sized + Trace> Trace for TraceBox<T> {
+    fn trace(&self, tracer: &mut Tracer<'_>) {
+        self.0.trace(tracer);
+    }
+
+    fn is_type_tracked() -> bool {
+        true
+    }
+}
+struct Tracked {
+    a: Vec<u32>,
+}
+impl Trace for Tracked {
+    fn trace(&self, _tracer: &mut Tracer) {}
+    fn is_type_tracked() -> bool
+    where
+        Self: Sized,
+    {
+        true
+    }
+}
+
+#[test]
+fn weak_double_free() {
+    assert!(
+        Tracked::is_type_tracked(),
+        "double free issue was only present for tracked (CcBoxWithGcHeader) objects"
+    );
+    let v = Cc::new(TraceBox(Box::new(Tracked { a: vec![1, 2, 3] })));
+    let w1 = v.clone().downgrade();
+    let w2 = v.clone().downgrade();
+    drop(v);
+    collect_thread_cycles();
+    drop(w1);
+    drop(w2);
 }
