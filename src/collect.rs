@@ -293,7 +293,7 @@ const PREV_SHIFT: u32 = 2;
 
 #[inline]
 fn unmask_ptr<T>(ptr: *const T) -> *const T {
-    ((ptr as usize) & PTR_MASK) as *const T
+    ptr.map_addr(|ptr| ptr & PTR_MASK)
 }
 
 /// Temporarily use `GcHeader.prev` as `gc_ref_count`.

@@ -379,11 +379,10 @@ pub mod interop {
 
 #[cfg(test)]
 mod dyn_cc {
-    use crate::Trace;
+    use crate::{dyn_cc, Trace};
     use std::fmt::Debug;
-    use std::ops::Deref;
 
-    use crate::{cc_dyn, Cc};
+    use crate::cc_dyn;
 
     #[derive(Debug, Trace)]
     struct Test {
@@ -392,7 +391,30 @@ mod dyn_cc {
 
     trait DebugAndTrace: Debug + Trace {}
     impl<T> DebugAndTrace for T where T: Debug + Trace {}
-    cc_dyn!(CcDebugAndTrace, DebugAndTrace);
+    cc_dyn!(
+        #[derive(Debug)]
+        CcDebugAndTrace,
+        DebugAndTrace
+    );
+
+    trait BorrowTy<O> {
+        fn borrow_ty(&self) -> &O;
+    }
+    cc_dyn!(CcBorrowTy<O>, BorrowTy<O>);
+    cc_dyn!(
+        CcBorrowTyAlsoDebug<O: Debug>,
+        BorrowTy<O>
+    );
+
+    #[derive(Trace)]
+    struct Borrowable<T: Trace> {
+        v: T,
+    }
+    impl<T: Trace> BorrowTy<T> for Borrowable<T> {
+        fn borrow_ty(&self) -> &T {
+            &self.v
+        }
+    }
 
     #[test]
     fn test_dyn() {
@@ -400,17 +422,25 @@ mod dyn_cc {
             a: "hello".to_owned(),
         };
 
+        let dynccgeneric = CcBorrowTy::new(Borrowable { v: 1u32 });
+        let v = dynccgeneric.0.borrow_ty();
+        assert_eq!(*v, 1);
+
+        let dynccgeneric = CcBorrowTyAlsoDebug::new(Borrowable { v: 1u32 });
+        let v = dynccgeneric.0.borrow_ty();
+        assert_eq!(*v, 1);
+
         let dyncc = CcDebugAndTrace::new(test);
-        assert_eq!(format!("{dyncc:?}"), "Cc(Test { a: \"hello\" })");
+        assert_eq!(format!("{dyncc:?}"), "CcDebugAndTrace(Cc(Test { a: \"hello\" }))");
         let dyncc_is_trace = dyncc;
         assert_eq!(
             format!("{dyncc_is_trace:?}"),
-            "Cc(Cc(Test { a: \"hello\" }))"
+            "CcDebugAndTrace(Cc(Test { a: \"hello\" }))"
         );
         let dyncc_is_trace_as_dyn = CcDebugAndTrace::new(dyncc_is_trace);
         assert_eq!(
             format!("{dyncc_is_trace_as_dyn:?}"),
-            "Cc(Cc(Test { a: \"hello\" }))"
+            "CcDebugAndTrace(Cc(CcDebugAndTrace(Cc(Test { a: \"hello\" }))))"
         );
     }
 }

@@ -78,6 +78,7 @@ pub type Cc<T> = RawCc<T, ObjectSpace>;
 pub type Weak<T> = RawWeak<T, ObjectSpace>;
 
 /// Low-level type for [`Cc<T>`](type.Cc.html).
+#[repr(transparent)]
 pub struct RawCc<T: ?Sized, O: AbstractObjectSpace>(NonNull<RawCcBox<T, O>>);
 
 /// Low-level type for [`Weak<T>`](type.Weak.html).
@@ -225,9 +226,8 @@ impl<T: Trace, O: AbstractObjectSpace> RawCc<T, O> {
             // Cc<dyn Trace> has 2 usize values: The first one is the same
             // as Cc<T>. The second one is the vtable. The vtable pointer
             // is the same as the second pointer of `&dyn Trace`.
-            let mut fat_ptr: [usize; 2] = mem::transmute(self.inner().deref() as &dyn Trace);
-            let self_ptr: usize = mem::transmute(self);
-            fat_ptr[0] = self_ptr;
+            let fat_ptr: *const dyn Trace = &**self.inner();
+            let fat_ptr = fat_ptr.with_addr(mem::transmute::<RawCc<T, O>, usize>(self));
             mem::transmute(fat_ptr)
         }
     }
@@ -236,11 +236,15 @@ impl<T: Trace, O: AbstractObjectSpace> RawCc<T, O> {
 /// Create Cc<dyn Trait> from Cc<T> where T: impl Trait, Trait is trait object
 #[macro_export]
 macro_rules! cc_dyn {
-    ($(#[$($meta:meta)+])* $conv:ident, $t:path $(, $new_vis:vis fn new() {...})?) => {
+    (
+        $(#[$($meta:meta)+])*
+        $conv:ident $(<$($gen:ident $(: $($gen_bound:path),+)?),+>)?,
+        $t:path $(, $new_vis:vis fn new() {...})?
+    ) => {
         $(#[$($meta)+])*
         #[repr(transparent)]
-        pub struct $conv($crate::Cc<dyn $t>);
-        impl $crate::Trace for $conv {
+        pub struct $conv$(<$($gen),+>)?($crate::Cc<dyn $t>);
+        impl$(<$($gen: 'static),+>)? $crate::Trace for $conv$(<$($gen),+>)? {
             fn trace(&self, tracer: &mut $crate::Tracer) {
                 $crate::Cc::<dyn $t>::trace(&self.0, tracer)
             }
@@ -250,17 +254,14 @@ macro_rules! cc_dyn {
                 true
             }
         }
-        impl $conv {
+        impl$(<$($gen $(: $($gen_bound),+)?),+>)? $conv$(<$($gen),+>)? {
             $($new_vis)? fn new<T: $t + $crate::Trace>(input: T) -> Self {
-                use std::ops::Deref;
-                unsafe {
-                    let cc: $crate::RawCc<_, _> = $crate::Cc::new(input);
-                    let mut fat_ptr: [usize; 2] =
-                        core::mem::transmute(cc.inner().deref() as &dyn $t);
-                    let self_ptr: usize = core::mem::transmute(cc);
-                    fat_ptr[0] = self_ptr;
-                    $conv(core::mem::transmute::<[usize; 2], $crate::RawCc<dyn $t, _>>(fat_ptr))
-                }
+                let cc: $crate::RawCc<_, _> = $crate::Cc::new(input);
+                let ptr: *const dyn $t = &**cc.inner();
+                let ptr = unsafe {
+                    ptr.with_addr(core::mem::transmute::<$crate::RawCc<T, _>, usize>(cc))
+                };
+                $conv(unsafe {core::mem::transmute::<*const dyn $t, $crate::RawCc<dyn $t, _>>(ptr)})
             }
         }
     };
