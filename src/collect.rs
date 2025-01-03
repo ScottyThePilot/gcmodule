@@ -18,6 +18,7 @@ use std::marker::PhantomData;
 use std::mem;
 use std::ops::Deref;
 use std::pin::Pin;
+use std::ptr::without_provenance;
 
 /// Provides advanced explicit control about where to store [`Cc`](type.Cc.html)
 /// objects.
@@ -310,7 +311,7 @@ fn update_refs<L: Linked>(list: &L) {
         // In such case just ignore the object by not marking it as COLLECTING.
         if ref_count > 0 {
             let shifted = (ref_count << PREV_SHIFT) | PREV_MASK_COLLECTING;
-            header.set_prev(shifted as _);
+            header.set_prev(without_provenance(shifted));
         } else {
             debug_assert!(header.prev() as usize & PREV_MASK_COLLECTING == 0);
         }
@@ -451,38 +452,38 @@ fn restore_prev<L: Linked>(list: &L) {
 }
 
 fn is_unreachable<L: Linked>(header: &L) -> bool {
-    let prev = header.prev() as usize;
+    let prev = header.prev().addr();
     is_collecting(header) && (prev >> PREV_SHIFT) == 0
 }
 
 pub(crate) fn is_collecting<L: Linked>(header: &L) -> bool {
-    let prev = header.prev() as usize;
+    let prev = header.prev().addr();
     (prev & PREV_MASK_COLLECTING) != 0
 }
 
 fn set_visited<L: Linked>(header: &L) -> bool {
-    let prev = header.prev() as usize;
-    let visited = (prev & PREV_MASK_VISITED) != 0;
+    let prev = header.prev();
+    let visited = (prev.addr() & PREV_MASK_VISITED) != 0;
     debug_assert!(
         !visited,
         "bug: double visit: {} (is Trace impl correct?)",
         debug_name(header)
     );
-    let new_prev = prev | PREV_MASK_VISITED;
-    header.set_prev(new_prev as _);
+    let new_prev = prev.map_addr(|prev| prev | PREV_MASK_VISITED);
+    header.set_prev(new_prev);
     visited
 }
 
 fn unset_collecting<L: Linked>(header: &L) {
-    let prev = header.prev() as usize;
-    let new_prev = (prev & PREV_MASK_COLLECTING) ^ prev;
-    header.set_prev(new_prev as _);
+    let prev = header.prev();
+    let new_prev = prev.map_addr(|prev| (prev & PREV_MASK_COLLECTING) ^ prev);
+    header.set_prev(new_prev);
 }
 
 fn edit_gc_ref_count<L: Linked>(header: &L, delta: isize) {
     let prev = header.prev() as isize;
     let new_prev = prev + (1 << PREV_SHIFT) * delta;
-    header.set_prev(new_prev as _);
+    header.set_prev(without_provenance(new_prev as usize));
 }
 
 #[allow(unused_variables)]
