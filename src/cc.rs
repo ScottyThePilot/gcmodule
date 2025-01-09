@@ -192,8 +192,8 @@ impl<T: Trace, O: AbstractObjectSpace> RawCc<T, O> {
                     ),
                 mem::size_of::<RawCcBoxWithGcHeader<T, O>>()
             );
-            let ptr: *mut RawCcBox<T, O> = &mut boxed.cc_box;
-            Box::leak(boxed);
+            let leaked = Box::leak(boxed);
+            let ptr: *mut RawCcBox<T, O> = &mut leaked.cc_box;
             ptr
         } else {
             Box::into_raw(Box::new(cc_box))
@@ -295,8 +295,11 @@ impl<T: ?Sized, O: AbstractObjectSpace> RawCcBox<T, O> {
     #[inline]
     fn header(&self) -> &O::Header {
         debug_assert!(self.is_tracked());
+
+        let ptr: *const Self = self;
         // safety: See `Cc::new`. GcHeader is before CcBox for tracked objects.
-        unsafe { cast_ref(self, -(mem::size_of::<O::Header>() as isize)) }
+        let ptr: *const O::Header = unsafe { ptr.byte_sub(mem::size_of::<O::Header>()) }.cast();
+        unsafe { &*ptr }
     }
 
     #[inline]
@@ -723,14 +726,6 @@ impl<T: ?Sized + std::marker::Unsize<U>, U: ?Sized, O: AbstractObjectSpace>
 }
 
 #[inline]
-unsafe fn cast_ref<T: ?Sized, R>(value: &T, offset_bytes: isize) -> &R {
-    let ptr: *const T = value;
-    let ptr: *const u8 = ptr as _;
-    let ptr = ptr.offset(offset_bytes);
-    &*(ptr as *const R)
-}
-
-#[inline]
 unsafe fn cast_box<T: ?Sized, O: AbstractObjectSpace>(
     value: Box<RawCcBox<T, O>>,
 ) -> Box<RawCcBoxWithGcHeader<T, O>> {
@@ -749,11 +744,12 @@ unsafe fn cast_box<T: ?Sized, O: AbstractObjectSpace>(
 mod tests {
     use super::*;
     use crate::collect::Linked;
+    use crate::TraceBox;
 
     /// Check that `GcHeader::value()` returns a working trait object.
     #[test]
     fn test_gc_header_value() {
-        let v1: Cc<Box<dyn Trace>> = Cc::new(Box::new(1));
+        let v1: Cc<TraceBox<dyn Trace>> = Cc::new(TraceBox(Box::new(1)));
         assert_eq!(v1.ref_count(), 1);
 
         let v2 = v1.clone();

@@ -14,10 +14,9 @@ use crate::Cc;
 use crate::Trace;
 use std::cell::Cell;
 use std::cell::RefCell;
+use std::cell::UnsafeCell;
 use std::marker::PhantomData;
 use std::mem;
-use std::ops::Deref;
-use std::pin::Pin;
 use std::ptr::without_provenance;
 
 /// Provides advanced explicit control about where to store [`Cc`](type.Cc.html)
@@ -39,18 +38,18 @@ use std::ptr::without_provenance;
 /// # Example
 ///
 /// ```
-/// use jrsonnet_gcmodule::{Cc, ObjectSpace, Trace};
+/// use jrsonnet_gcmodule::{Cc, ObjectSpace, Trace, TraceBox};
 /// use std::cell::RefCell;
 ///
 /// let mut space = ObjectSpace::default();
 /// assert_eq!(space.count_tracked(), 0);
 ///
 /// {
-///     type List = Cc<RefCell<Vec<Box<dyn Trace>>>>;
+///     type List = Cc<RefCell<Vec<TraceBox<dyn Trace>>>>;
 ///     let a: List = space.create(Default::default());
 ///     let b: List = space.create(Default::default());
-///     a.borrow_mut().push(Box::new(b.clone()));
-///     b.borrow_mut().push(Box::new(a.clone()));
+///     a.borrow_mut().push(TraceBox(Box::new(b.clone())));
+///     b.borrow_mut().push(TraceBox(Box::new(a.clone())));
 /// }
 ///
 /// assert_eq!(space.count_tracked(), 2);
@@ -58,7 +57,7 @@ use std::ptr::without_provenance;
 /// ```
 pub struct ObjectSpace {
     /// Linked list to the tracked objects.
-    pub(crate) list: RefCell<Pin<Box<GcHeader>>>,
+    pub(crate) list: RefCell<OwnedGcHeader>,
 
     /// Mark `ObjectSpace` as `!Send` and `!Sync`. This enforces thread-exclusive
     /// access to the linked list so methods can use `&self` instead of
@@ -88,7 +87,8 @@ impl AbstractObjectSpace for ObjectSpace {
     type Header = GcHeader;
 
     fn insert(&self, header: &mut Self::Header, value: &dyn CcDyn) {
-        let prev: &GcHeader = &self.list.borrow();
+        let list = self.list.borrow();
+        let prev: &GcHeader = list.inner();
         debug_assert!(header.next.get().is_null());
         let next = prev.next.get();
         header.prev.set(prev);
@@ -143,7 +143,8 @@ impl Default for ObjectSpace {
 impl ObjectSpace {
     /// Count objects tracked by this [`ObjectSpace`](struct.ObjectSpace.html).
     pub fn count_tracked(&self) -> usize {
-        let list: &GcHeader = &self.list.borrow();
+        let list = self.list.borrow();
+        let list: &GcHeader = list.inner();
         let mut count = 0;
         visit_list(list, |_| count += 1);
         count
@@ -152,7 +153,8 @@ impl ObjectSpace {
     /// Collect cyclic garbage tracked by this [`ObjectSpace`](struct.ObjectSpace.html).
     /// Return the number of objects collected.
     pub fn collect_cycles(&self) -> usize {
-        let list: &GcHeader = &self.list.borrow();
+        let list = self.list.borrow();
+        let list: &GcHeader = list.inner();
         collect_list(list, ())
     }
 
@@ -191,14 +193,16 @@ pub trait Linked {
 }
 
 /// Internal metadata used by the cycle collector.
-#[cfg_attr(target_pointer_width = "32", repr(C, align(8)))]
-#[cfg_attr(not(target_pointer_width = "32"), repr(C))]
+#[repr(C)]
 pub struct GcHeader {
     pub(crate) next: Cell<*const GcHeader>,
     pub(crate) prev: Cell<*const GcHeader>,
 
     /// Vtable of (`&CcBox<T> as &dyn CcDyn`)
     pub(crate) ccdyn_vptr: *const (),
+
+    /// https://github.com/rust-lang/unsafe-code-guidelines/issues/256#issuecomment-2506767812
+    pub(crate) _marker: UnsafeCell<()>,
 }
 
 impl Linked for GcHeader {
@@ -233,6 +237,7 @@ impl GcHeader {
             next: Cell::new(std::ptr::null()),
             prev: Cell::new(std::ptr::null()),
             ccdyn_vptr: CcDummy::ccdyn_vptr(),
+            _marker: UnsafeCell::new(()),
         }
     }
 }
@@ -259,13 +264,27 @@ pub fn with_thread_object_space<R>(handler: impl FnOnce(&ObjectSpace) -> R) -> R
     THREAD_OBJECT_SPACE.with(handler)
 }
 
+pub(crate) struct OwnedGcHeader {
+    raw: *mut GcHeader,
+}
+impl OwnedGcHeader {
+    fn inner(&self) -> &GcHeader {
+        unsafe { &*self.raw }
+    }
+}
+impl Drop for OwnedGcHeader {
+    fn drop(&mut self) {
+        drop(unsafe { Box::from_raw(self.raw) });
+    }
+}
+
 /// Create an empty linked list with a dummy GcHeader.
-pub(crate) fn new_gc_list() -> Pin<Box<GcHeader>> {
-    let pinned = Box::pin(GcHeader::empty());
-    let header: &GcHeader = pinned.deref();
-    header.prev.set(header);
-    header.next.set(header);
-    pinned
+pub(crate) fn new_gc_list() -> OwnedGcHeader {
+    let header = Box::into_raw(Box::new(GcHeader::empty()));
+    unsafe { (*header).prev.set(header) };
+    unsafe { (*header).next.set(header) };
+
+    OwnedGcHeader { raw: header }
 }
 
 /// Scan the specified linked list. Collect cycles.
