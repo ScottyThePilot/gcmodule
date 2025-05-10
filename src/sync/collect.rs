@@ -1,12 +1,12 @@
-use super::ref_count::ThreadedRefCount;
 use super::ThreadedCc;
+use super::ref_count::ThreadedRefCount;
+use crate::Trace;
 use crate::cc::CcDummy;
 use crate::cc::CcDyn;
 use crate::collect;
 use crate::collect::AbstractObjectSpace;
 use crate::collect::Linked;
 use crate::debug;
-use crate::Trace;
 use parking_lot::Mutex;
 use parking_lot::RwLock;
 use std::cell::Cell;

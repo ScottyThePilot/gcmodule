@@ -316,7 +316,7 @@ pub use jrsonnet_gcmodule_derive::Trace;
 
 #[cfg(not(test))]
 mod debug {
-    #[cfg(any(feature = "debug", test))]
+    #[cfg(any(feature = "debug", feature = "testutil", test))]
     thread_local!(pub(crate) static NEXT_DEBUG_NAME: std::cell::Cell<usize> = Default::default());
     #[cfg(any(feature = "debug", test))]
     thread_local!(pub(crate) static GC_DROPPING: std::cell::Cell<bool> = Cell::new(false));
@@ -340,7 +340,6 @@ pub const DEBUG_ENABLED: bool = cfg!(feature = "debug");
 #[cfg(not(any(test, feature = "debug")))]
 pub mod interop {
     use std::mem;
-    use std::pin::Pin;
 
     use crate::collect::{new_gc_list, OwnedGcHeader, THREAD_OBJECT_SPACE};
 

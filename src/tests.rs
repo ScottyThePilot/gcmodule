@@ -400,7 +400,7 @@ fn test_update_with() {
     // Update on a unique value.
     let log = debug::capture_log(|| {
         let mut cc = Cc::new(30);
-        cc.update_with(|i| *i = *i + 1);
+        cc.update_with(|i| *i += 1);
         assert_eq!(cc.deref(), &31);
     });
     assert_eq!(log, "\n0: new (CcBox), drop (0), drop (T), drop (CcBox)");
@@ -411,7 +411,7 @@ fn test_update_with() {
         let cc1 = Cc::new(30);
         let mut cc2 = cc1.clone();
         debug::NEXT_DEBUG_NAME.with(|n| n.set(3));
-        cc2.update_with(|i| *i = *i + 1);
+        cc2.update_with(|i| *i += 1);
         assert_eq!(cc1.deref(), &30);
         assert_eq!(cc2.deref(), &31);
     });
@@ -439,7 +439,7 @@ fn test_update_with() {
         let cc1: Cc<V> = Cc::new(V(30));
         let mut cc2 = cc1.clone();
         debug::NEXT_DEBUG_NAME.with(|n| n.set(3));
-        cc2.update_with(|i| i.0 = i.0 + 1);
+        cc2.update_with(|i| i.0 += 1);
         assert_eq!(cc1.deref().0, 30);
         assert_eq!(cc2.deref().0, 31);
     });
@@ -476,15 +476,13 @@ impl panic::UnwindSafe for DuplicatedVisits {}
 fn capture_panic_message<R, F: Fn() -> R + panic::UnwindSafe>(func: F) -> String {
     match panic::catch_unwind(func) {
         Ok(_) => "(no panic happened)".to_string(),
-        Err(e) => {
-            if let Some(s) = e.downcast_ref::<String>() {
-                return s.clone();
-            } else if let Some(s) = e.downcast_ref::<&'static str>() {
-                return s.to_string();
-            } else {
-                "(panic information is not a string)".to_string()
-            }
-        }
+        Err(e) => match e.downcast_ref::<String>() {
+            Some(s) => s.clone(),
+            _ => match e.downcast_ref::<&'static str>() {
+                Some(s) => s.to_string(),
+                _ => "(panic information is not a string)".to_string(),
+            },
+        },
     }
 }
 
@@ -494,7 +492,7 @@ fn test_trace_impl_double_visits() {
     v.extra_times.set(1);
     *(v.a.borrow_mut()) = Some(TraceBox(Box::new(v.clone())));
 
-    let message = capture_panic_message(|| collect::collect_thread_cycles());
+    let message = capture_panic_message(collect::collect_thread_cycles);
     assert!(message.contains("bug: unexpected ref-count after dropping cycles"));
 
     // The `CcBox<_>` was "forced dropped" as a side effect.
