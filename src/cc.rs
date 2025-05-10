@@ -7,6 +7,7 @@ use crate::trace::Trace;
 use crate::trace::Tracer;
 use std::cell::UnsafeCell;
 use std::mem;
+use std::mem::offset_of;
 use std::mem::ManuallyDrop;
 use std::ops::Deref;
 use std::ops::DerefMut;
@@ -179,13 +180,13 @@ impl<T: Trace, O: AbstractObjectSpace> RawCc<T, O> {
             // Create a GcHeader before the CcBox. This is similar to cpython.
             let header = space.empty_header();
             let cc_box_with_header = RawCcBoxWithGcHeader { header, cc_box };
-            let mut boxed = Box::new(cc_box_with_header);
+            let boxed = Box::new(cc_box_with_header);
             // Fix-up fields in GcHeader. This is done after the creation of the
             // Box so the memory addresses are stable.
-            space.insert(&mut boxed.header, &boxed.cc_box);
             assert!(mem::align_of::<O::Header>() >= mem::align_of::<RawCcBox<T, O>>());
+            let header_space = offset_of!(RawCcBoxWithGcHeader<(), O>, cc_box);
             debug_assert_eq!(
-                mem::size_of::<O::Header>()
+                header_space
                     + aligned_size(
                         mem::size_of::<RawCcBox<T, O>>(),
                         mem::align_of::<RawCcBox<T, O>>().max(mem::align_of::<O::Header>())
@@ -193,7 +194,8 @@ impl<T: Trace, O: AbstractObjectSpace> RawCc<T, O> {
                 mem::size_of::<RawCcBoxWithGcHeader<T, O>>()
             );
             let leaked = Box::leak(boxed);
-            let ptr: *mut RawCcBox<T, O> = &mut leaked.cc_box;
+            space.insert(&leaked.header, &leaked.cc_box);
+            let ptr: *mut RawCcBox<T, O> = &raw mut leaked.cc_box;
             ptr
         } else {
             Box::into_raw(Box::new(cc_box))
@@ -257,7 +259,8 @@ macro_rules! cc_dyn {
         impl$(<$($gen $(: $($gen_bound),+)?),+>)? $conv$(<$($gen),+>)? {
             $($new_vis)? fn new<T: $t + $crate::Trace>(input: T) -> Self {
                 let cc: $crate::RawCc<_, _> = $crate::Cc::new(input);
-                let ptr: *const dyn $t = &**cc.inner();
+                let cc_ptr = unsafe { $crate::Cc::inner_box(&raw const cc) };
+                let ptr: *const dyn $t = cc_ptr;
                 let ptr = unsafe {
                     ptr.with_addr(core::mem::transmute::<$crate::RawCc<T, _>, usize>(cc))
                 };
@@ -293,13 +296,19 @@ impl<T: ?Sized, O: AbstractObjectSpace> RawCcBox<T, O> {
     }
 
     #[inline]
-    fn header(&self) -> &O::Header {
+    fn header(&self) -> *const O::Header {
         debug_assert!(self.is_tracked());
 
+        // using () instead of T should work here.
+        // `offset_of!` macro has no ability to lookup unsized field offset,
+        // however we want access to the RawCcBox sized prelude, and it should work
+        // fine here.
+        let box_offset = offset_of!(RawCcBoxWithGcHeader<(), O>, cc_box);
+        // memoffset::offset_of!(RawCcBoxWithGcHeader<T, O>, cc_box);
         let ptr: *const Self = self;
         // safety: See `Cc::new`. GcHeader is before CcBox for tracked objects.
-        let ptr: *const O::Header = unsafe { ptr.byte_sub(mem::size_of::<O::Header>()) }.cast();
-        unsafe { &*ptr }
+        let ptr: *const O::Header = unsafe { ptr.cast::<u8>().byte_sub(box_offset) }.cast();
+        ptr
     }
 
     #[inline]
@@ -479,6 +488,12 @@ impl<T: ?Sized, O: AbstractObjectSpace> RawCc<T, O> {
     pub fn inner(&self) -> &RawCcBox<T, O> {
         // safety: CcBox lifetime maintained by ref count. Pointer is valid.
         unsafe { self.0.as_ref() }
+    }
+
+    #[doc(hidden)]
+    pub unsafe fn inner_box(this: *const Self) -> *const T {
+        let ptr: *const ManuallyDrop<T> = unsafe { (*(*this).0.as_ptr()).value.get() }.cast_const();
+        ptr as _
     }
 
     /// `trace` without `T: Trace` bound.
@@ -728,7 +743,7 @@ impl<T: ?Sized + std::marker::Unsize<U>, U: ?Sized, O: AbstractObjectSpace>
 #[inline]
 unsafe fn cast_box<T: ?Sized, O: AbstractObjectSpace>(
     value: Box<RawCcBox<T, O>>,
-) -> Box<RawCcBoxWithGcHeader<T, O>> {
+) -> Box<RawCcBoxWithGcHeader<T, O>> { unsafe {
     let mut ptr: *const RawCcBox<T, O> = Box::into_raw(value);
 
     // ptr can be "thin" (1 pointer) or "fat" (2 pointers).
@@ -738,10 +753,12 @@ unsafe fn cast_box<T: ?Sized, O: AbstractObjectSpace>(
     *pptr = (*pptr).offset(-1);
     let ptr: *mut RawCcBoxWithGcHeader<T, O> = mem::transmute(ptr);
     Box::from_raw(ptr)
-}
+}}
 
 #[cfg(test)]
 mod tests {
+    use self::collect::GcHeader;
+
     use super::*;
     use crate::collect::Linked;
     use crate::TraceBox;
@@ -759,7 +776,7 @@ mod tests {
         let v3: &dyn CcDyn = v1.inner() as &dyn CcDyn;
         assert_eq!(v3.gc_ref_count(), 2);
 
-        let v4: &dyn CcDyn = v2.inner().header().value();
+        let v4: &dyn CcDyn = unsafe{&*GcHeader::value_ptr(v2.inner().header())};
         assert_eq!(v4.gc_ref_count(), 2);
     }
 

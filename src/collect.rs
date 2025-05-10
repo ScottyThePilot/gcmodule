@@ -71,7 +71,7 @@ pub trait AbstractObjectSpace: 'static + Sized {
     type Header;
 
     /// Insert "header" and "value" to the linked list.
-    fn insert(&self, header: &mut Self::Header, value: &dyn CcDyn);
+    fn insert(&self, header: *const Self::Header, value: &dyn CcDyn);
 
     /// Remove from linked list.
     fn remove(header: &Self::Header);
@@ -86,19 +86,19 @@ impl AbstractObjectSpace for ObjectSpace {
     type RefCount = SingleThreadRefCount;
     type Header = GcHeader;
 
-    fn insert(&self, header: &mut Self::Header, value: &dyn CcDyn) {
+    fn insert(&self, header: *const Self::Header, value: &dyn CcDyn) {
         let list = self.list.borrow();
         let prev: &GcHeader = list.inner();
-        debug_assert!(header.next.get().is_null());
+        debug_assert!(unsafe { (*header).next.get() }.is_null());
         let next = prev.next.get();
-        header.prev.set(prev);
-        header.next.set(next);
+        unsafe { (*header).prev.set(prev) };
+        unsafe { (*header).next.set(next) };
         unsafe {
             // safety: The linked list is maintained, and pointers are valid.
             (*next).prev.set(header);
             // safety: To access vtable pointer. Test by test_gc_header_value.
             let fat_ptr: [*mut (); 2] = mem::transmute(value);
-            header.ccdyn_vptr = fat_ptr[1];
+            (*header).ccdyn_vptr.set(fat_ptr[1]);
         }
         prev.next.set(header);
     }
@@ -188,6 +188,7 @@ pub trait Linked {
     fn prev(&self) -> *const Self;
     fn set_prev(&self, other: *const Self);
 
+    fn value_ptr(this: *const Self) -> *const dyn CcDyn;
     /// Get the trait object to operate on the actual `CcBox`.
     fn value(&self) -> &dyn CcDyn;
 }
@@ -199,7 +200,7 @@ pub struct GcHeader {
     pub(crate) prev: Cell<*const GcHeader>,
 
     /// Vtable of (`&CcBox<T> as &dyn CcDyn`)
-    pub(crate) ccdyn_vptr: *const (),
+    pub(crate) ccdyn_vptr: Cell<*const ()>,
 
     /// https://github.com/rust-lang/unsafe-code-guidelines/issues/256#issuecomment-2506767812
     pub(crate) _marker: UnsafeCell<()>,
@@ -218,15 +219,17 @@ impl Linked for GcHeader {
     fn set_prev(&self, other: *const Self) {
         self.prev.set(other)
     }
-    #[inline]
-    fn value(&self) -> &dyn CcDyn {
+    fn value_ptr(this: *const Self) -> *const dyn CcDyn {
         // safety: To build trait object from self and vtable pointer.
         // Test by test_gc_header_value_consistency().
         unsafe {
-            let fat_ptr: (*const (), *const ()) =
-                ((self as *const Self).offset(1) as _, self.ccdyn_vptr);
+            let fat_ptr: (*const (), *const ()) = (this.offset(1) as _, (*this).ccdyn_vptr.get());
             mem::transmute(fat_ptr)
         }
+    }
+    #[inline]
+    fn value(&self) -> &dyn CcDyn {
+        unsafe { mem::transmute(Self::value_ptr(self)) }
     }
 }
 
@@ -236,7 +239,7 @@ impl GcHeader {
         Self {
             next: Cell::new(std::ptr::null()),
             prev: Cell::new(std::ptr::null()),
-            ccdyn_vptr: CcDummy::ccdyn_vptr(),
+            ccdyn_vptr: Cell::new(CcDummy::ccdyn_vptr()),
             _marker: UnsafeCell::new(()),
         }
     }
