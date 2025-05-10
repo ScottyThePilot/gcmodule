@@ -1,6 +1,6 @@
 use crate::testutil::test_small_graph;
-use crate::{collect, collect_thread_cycles, Cc, Trace, Tracer};
-use crate::{debug, with_thread_object_space, Weak};
+use crate::{Cc, Trace, Tracer, collect, collect_thread_cycles};
+use crate::{Weak, debug, with_thread_object_space};
 use std::cell::Cell;
 use std::cell::RefCell;
 use std::ops::Deref;
@@ -559,6 +559,7 @@ impl<T: ?Sized + Trace> Trace for TraceBox<T> {
     }
 }
 struct Tracked {
+    #[allow(dead_code)]
     a: Vec<u32>,
 }
 impl Trace for Tracked {
