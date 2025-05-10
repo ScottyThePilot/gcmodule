@@ -1,7 +1,7 @@
 [workspace.package]
 version = "0.3.9"
 authors = ["Jun Wu <quark@lihdd.net>", "Yaroslav Bolyukin <iam@lach.pw>"]
-edition = "2021"
+edition = "2024"
 license = "MIT"
 repository = "https://github.com/CertainLach/gcmodule"
 
@@ -33,5 +33,5 @@ sync = ["parking_lot"]
 testutil = []
 
 [workspace]
-members = ["gcmodule_derive"]
+members = ["gcmodule_derive", "fuzz"]
 

@@ -1,5 +1,5 @@
 #![no_main]
-use gcmodule::testutil::test_small_graph;
+use jrsonnet_gcmodule::testutil::test_small_graph;
 use libfuzzer_sys::fuzz_target;
 
 fuzz_target!(|data: (u8, u16, u16, Vec<u8>)| {
