@@ -14,10 +14,10 @@ use crate::Cc;
 use crate::Trace;
 use std::cell::Cell;
 use std::cell::RefCell;
+use std::cell::UnsafeCell;
 use std::marker::PhantomData;
 use std::mem;
-use std::ops::Deref;
-use std::pin::Pin;
+use std::ptr::without_provenance;
 
 /// Provides advanced explicit control about where to store [`Cc`](type.Cc.html)
 /// objects.
@@ -38,18 +38,18 @@ use std::pin::Pin;
 /// # Example
 ///
 /// ```
-/// use jrsonnet_gcmodule::{Cc, ObjectSpace, Trace};
+/// use jrsonnet_gcmodule::{Cc, ObjectSpace, Trace, TraceBox};
 /// use std::cell::RefCell;
 ///
 /// let mut space = ObjectSpace::default();
 /// assert_eq!(space.count_tracked(), 0);
 ///
 /// {
-///     type List = Cc<RefCell<Vec<Box<dyn Trace>>>>;
+///     type List = Cc<RefCell<Vec<TraceBox<dyn Trace>>>>;
 ///     let a: List = space.create(Default::default());
 ///     let b: List = space.create(Default::default());
-///     a.borrow_mut().push(Box::new(b.clone()));
-///     b.borrow_mut().push(Box::new(a.clone()));
+///     a.borrow_mut().push(TraceBox(Box::new(b.clone())));
+///     b.borrow_mut().push(TraceBox(Box::new(a.clone())));
 /// }
 ///
 /// assert_eq!(space.count_tracked(), 2);
@@ -57,7 +57,7 @@ use std::pin::Pin;
 /// ```
 pub struct ObjectSpace {
     /// Linked list to the tracked objects.
-    pub(crate) list: RefCell<Pin<Box<GcHeader>>>,
+    pub(crate) list: RefCell<OwnedGcHeader>,
 
     /// Mark `ObjectSpace` as `!Send` and `!Sync`. This enforces thread-exclusive
     /// access to the linked list so methods can use `&self` instead of
@@ -71,7 +71,7 @@ pub trait AbstractObjectSpace: 'static + Sized {
     type Header;
 
     /// Insert "header" and "value" to the linked list.
-    fn insert(&self, header: &mut Self::Header, value: &dyn CcDyn);
+    fn insert(&self, header: *const Self::Header, value: &dyn CcDyn);
 
     /// Remove from linked list.
     fn remove(header: &Self::Header);
@@ -86,18 +86,19 @@ impl AbstractObjectSpace for ObjectSpace {
     type RefCount = SingleThreadRefCount;
     type Header = GcHeader;
 
-    fn insert(&self, header: &mut Self::Header, value: &dyn CcDyn) {
-        let prev: &GcHeader = &self.list.borrow();
-        debug_assert!(header.next.get().is_null());
+    fn insert(&self, header: *const Self::Header, value: &dyn CcDyn) {
+        let list = self.list.borrow();
+        let prev: &GcHeader = list.inner();
+        debug_assert!(unsafe { (*header).next.get() }.is_null());
         let next = prev.next.get();
-        header.prev.set(prev);
-        header.next.set(next);
+        unsafe { (*header).prev.set(prev) };
+        unsafe { (*header).next.set(next) };
         unsafe {
             // safety: The linked list is maintained, and pointers are valid.
             (*next).prev.set(header);
             // safety: To access vtable pointer. Test by test_gc_header_value.
             let fat_ptr: [*mut (); 2] = mem::transmute(value);
-            header.ccdyn_vptr = fat_ptr[1];
+            (*header).ccdyn_vptr.set(fat_ptr[1]);
         }
         prev.next.set(header);
     }
@@ -142,7 +143,8 @@ impl Default for ObjectSpace {
 impl ObjectSpace {
     /// Count objects tracked by this [`ObjectSpace`](struct.ObjectSpace.html).
     pub fn count_tracked(&self) -> usize {
-        let list: &GcHeader = &self.list.borrow();
+        let list = self.list.borrow();
+        let list: &GcHeader = list.inner();
         let mut count = 0;
         visit_list(list, |_| count += 1);
         count
@@ -151,7 +153,8 @@ impl ObjectSpace {
     /// Collect cyclic garbage tracked by this [`ObjectSpace`](struct.ObjectSpace.html).
     /// Return the number of objects collected.
     pub fn collect_cycles(&self) -> usize {
-        let list: &GcHeader = &self.list.borrow();
+        let list = self.list.borrow();
+        let list: &GcHeader = list.inner();
         collect_list(list, ())
     }
 
@@ -185,19 +188,22 @@ pub trait Linked {
     fn prev(&self) -> *const Self;
     fn set_prev(&self, other: *const Self);
 
+    fn value_ptr(this: *const Self) -> *const dyn CcDyn;
     /// Get the trait object to operate on the actual `CcBox`.
     fn value(&self) -> &dyn CcDyn;
 }
 
 /// Internal metadata used by the cycle collector.
-#[cfg_attr(target_pointer_width = "32", repr(C, align(8)))]
-#[cfg_attr(not(target_pointer_width = "32"), repr(C))]
+#[repr(C)]
 pub struct GcHeader {
     pub(crate) next: Cell<*const GcHeader>,
     pub(crate) prev: Cell<*const GcHeader>,
 
     /// Vtable of (`&CcBox<T> as &dyn CcDyn`)
-    pub(crate) ccdyn_vptr: *const (),
+    pub(crate) ccdyn_vptr: Cell<*const ()>,
+
+    /// https://github.com/rust-lang/unsafe-code-guidelines/issues/256#issuecomment-2506767812
+    pub(crate) _marker: UnsafeCell<()>,
 }
 
 impl Linked for GcHeader {
@@ -213,15 +219,17 @@ impl Linked for GcHeader {
     fn set_prev(&self, other: *const Self) {
         self.prev.set(other)
     }
-    #[inline]
-    fn value(&self) -> &dyn CcDyn {
+    fn value_ptr(this: *const Self) -> *const dyn CcDyn {
         // safety: To build trait object from self and vtable pointer.
         // Test by test_gc_header_value_consistency().
         unsafe {
-            let fat_ptr: (*const (), *const ()) =
-                ((self as *const Self).offset(1) as _, self.ccdyn_vptr);
+            let fat_ptr: (*const (), *const ()) = (this.offset(1) as _, (*this).ccdyn_vptr.get());
             mem::transmute(fat_ptr)
         }
+    }
+    #[inline]
+    fn value(&self) -> &dyn CcDyn {
+        unsafe { mem::transmute(Self::value_ptr(self)) }
     }
 }
 
@@ -231,7 +239,8 @@ impl GcHeader {
         Self {
             next: Cell::new(std::ptr::null()),
             prev: Cell::new(std::ptr::null()),
-            ccdyn_vptr: CcDummy::ccdyn_vptr(),
+            ccdyn_vptr: Cell::new(CcDummy::ccdyn_vptr()),
+            _marker: UnsafeCell::new(()),
         }
     }
 }
@@ -258,13 +267,27 @@ pub fn with_thread_object_space<R>(handler: impl FnOnce(&ObjectSpace) -> R) -> R
     THREAD_OBJECT_SPACE.with(handler)
 }
 
+pub(crate) struct OwnedGcHeader {
+    raw: *mut GcHeader,
+}
+impl OwnedGcHeader {
+    fn inner(&self) -> &GcHeader {
+        unsafe { &*self.raw }
+    }
+}
+impl Drop for OwnedGcHeader {
+    fn drop(&mut self) {
+        drop(unsafe { Box::from_raw(self.raw) });
+    }
+}
+
 /// Create an empty linked list with a dummy GcHeader.
-pub(crate) fn new_gc_list() -> Pin<Box<GcHeader>> {
-    let pinned = Box::pin(GcHeader::empty());
-    let header: &GcHeader = pinned.deref();
-    header.prev.set(header);
-    header.next.set(header);
-    pinned
+pub(crate) fn new_gc_list() -> OwnedGcHeader {
+    let header = Box::into_raw(Box::new(GcHeader::empty()));
+    unsafe { (*header).prev.set(header) };
+    unsafe { (*header).next.set(header) };
+
+    OwnedGcHeader { raw: header }
 }
 
 /// Scan the specified linked list. Collect cycles.
@@ -293,7 +316,7 @@ const PREV_SHIFT: u32 = 2;
 
 #[inline]
 fn unmask_ptr<T>(ptr: *const T) -> *const T {
-    ((ptr as usize) & PTR_MASK) as *const T
+    ptr.map_addr(|ptr| ptr & PTR_MASK)
 }
 
 /// Temporarily use `GcHeader.prev` as `gc_ref_count`.
@@ -310,7 +333,7 @@ fn update_refs<L: Linked>(list: &L) {
         // In such case just ignore the object by not marking it as COLLECTING.
         if ref_count > 0 {
             let shifted = (ref_count << PREV_SHIFT) | PREV_MASK_COLLECTING;
-            header.set_prev(shifted as _);
+            header.set_prev(without_provenance(shifted));
         } else {
             debug_assert!(header.prev() as usize & PREV_MASK_COLLECTING == 0);
         }
@@ -451,38 +474,38 @@ fn restore_prev<L: Linked>(list: &L) {
 }
 
 fn is_unreachable<L: Linked>(header: &L) -> bool {
-    let prev = header.prev() as usize;
+    let prev = header.prev().addr();
     is_collecting(header) && (prev >> PREV_SHIFT) == 0
 }
 
 pub(crate) fn is_collecting<L: Linked>(header: &L) -> bool {
-    let prev = header.prev() as usize;
+    let prev = header.prev().addr();
     (prev & PREV_MASK_COLLECTING) != 0
 }
 
 fn set_visited<L: Linked>(header: &L) -> bool {
-    let prev = header.prev() as usize;
-    let visited = (prev & PREV_MASK_VISITED) != 0;
+    let prev = header.prev();
+    let visited = (prev.addr() & PREV_MASK_VISITED) != 0;
     debug_assert!(
         !visited,
         "bug: double visit: {} (is Trace impl correct?)",
         debug_name(header)
     );
-    let new_prev = prev | PREV_MASK_VISITED;
-    header.set_prev(new_prev as _);
+    let new_prev = prev.map_addr(|prev| prev | PREV_MASK_VISITED);
+    header.set_prev(new_prev);
     visited
 }
 
 fn unset_collecting<L: Linked>(header: &L) {
-    let prev = header.prev() as usize;
-    let new_prev = (prev & PREV_MASK_COLLECTING) ^ prev;
-    header.set_prev(new_prev as _);
+    let prev = header.prev();
+    let new_prev = prev.map_addr(|prev| (prev & PREV_MASK_COLLECTING) ^ prev);
+    header.set_prev(new_prev);
 }
 
 fn edit_gc_ref_count<L: Linked>(header: &L, delta: isize) {
     let prev = header.prev() as isize;
     let new_prev = prev + (1 << PREV_SHIFT) * delta;
-    header.set_prev(new_prev as _);
+    header.set_prev(without_provenance(new_prev as usize));
 }
 
 #[allow(unused_variables)]

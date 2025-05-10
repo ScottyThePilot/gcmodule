@@ -33,14 +33,14 @@
 //! many objects are tracked by the collector.
 //!
 //! ```
-//! use jrsonnet_gcmodule::{Cc, Trace};
+//! use jrsonnet_gcmodule::{Cc, Trace, TraceBox};
 //! use std::cell::RefCell;
 //! {
-//!     type List = Cc<RefCell<Vec<Box<dyn Trace>>>>;
+//!     type List = Cc<RefCell<Vec<TraceBox<dyn Trace>>>>;
 //!     let a: List = Default::default();
 //!     let b: List = Default::default();
-//!     a.borrow_mut().push(Box::new(b.clone()));
-//!     b.borrow_mut().push(Box::new(a.clone()));
+//!     a.borrow_mut().push(TraceBox(Box::new(b.clone())));
+//!     b.borrow_mut().push(TraceBox(Box::new(a.clone())));
 //! }
 //!
 //! // a and b form circular references. The objects they point to are not
@@ -50,34 +50,36 @@
 //! assert_eq!(jrsonnet_gcmodule::collect_thread_cycles(), 2);  // This will drop a and b.
 //! assert_eq!(jrsonnet_gcmodule::count_thread_tracked(), 0);   // no values are tracked.
 //! ```
-//!
-//! ## Multi-thread support
-//!
-//! The main type [`Cc`](type.cc.html) works fine in a single-thread environment.
-//!
-//! There are also [`ThreadedObjectSpace`](struct.ThreadedObjectSpace.html)
-//! and [`ThreadedCc`](type.ThreadedCc.html) for multi-thread usecases. Beware
-//! they take more memory, are slower, and a bit harder to use.
-//!
-//! ```
-//! use jrsonnet_gcmodule::{ThreadedObjectSpace, ThreadedCc, Trace};
-//! use std::sync::Mutex;
-//!
-//! type List = ThreadedCc<Mutex<Vec<Box<dyn Trace + Send + Sync>>>>;
-//! let space = ThreadedObjectSpace::default();
-//! {
-//!     let list1: List = space.create(Mutex::new(Default::default()));
-//!     let list2: List = space.create(Mutex::new(Default::default()));
-//!     let thread = std::thread::spawn(move || {
-//!         list1.borrow().lock().unwrap().push(Box::new(list2.clone()));
-//!         list2.borrow().lock().unwrap().push(Box::new(list1.clone()));
-//!     });
-//!     thread.join().unwrap();
-//! }
-//! assert_eq!(space.count_tracked(), 2);
-//! assert_eq!(space.collect_cycles(), 2);
-//! assert_eq!(space.count_tracked(), 0);
-//! ```
+#![cfg_attr(feature = "sync", doc = r##"
+
+## Multi-thread support
+
+The main type [`Cc`](type.cc.html) works fine in a single-thread environment.
+
+There are also [`ThreadedObjectSpace`](struct.ThreadedObjectSpace.html)
+and [`ThreadedCc`](type.ThreadedCc.html) for multi-thread usecases. Beware
+they take more memory, are slower, and a bit harder to use.
+
+```
+use jrsonnet_gcmodule::{ThreadedObjectSpace, ThreadedCc, Trace, TraceBox};
+use std::sync::Mutex;
+
+type List = ThreadedCc<Mutex<Vec<TraceBox<dyn Trace + Send + Sync>>>>;
+let space = ThreadedObjectSpace::default();
+{
+    let list1: List = space.create(Mutex::new(Default::default()));
+    let list2: List = space.create(Mutex::new(Default::default()));
+    let thread = std::thread::spawn(move || {
+        list1.borrow().lock().unwrap().push(TraceBox(Box::new(list2.clone())));
+        list2.borrow().lock().unwrap().push(TraceBox(Box::new(list1.clone())));
+    });
+    thread.join().unwrap();
+}
+assert_eq!(space.count_tracked(), 2);
+assert_eq!(space.collect_cycles(), 2);
+assert_eq!(space.count_tracked(), 0);
+```
+"##)]
 //!
 //! ## Defining new types
 //!
@@ -117,7 +119,7 @@
 //! types without referring to trait objects or itself are considered acyclic.
 //!
 //! ```
-//! use jrsonnet_gcmodule::{Cc, Trace};
+//! use jrsonnet_gcmodule::{Cc, Trace, TraceBox};
 //!
 //! #[derive(Trace)]
 //! struct Foo<T1: Trace, T2: Trace>(T1, T2, u8);
@@ -127,7 +129,7 @@
 //! assert_eq!(jrsonnet_gcmodule::count_thread_tracked(), 0);
 //!
 //! // `b` is tracked because it contains a trait object.
-//! let b = Cc::new(Foo(Box::new(1) as Box<dyn Trace>, 2, 3));
+//! let b = Cc::new(Foo(TraceBox(Box::new(1) as Box<dyn Trace>), 2, 3));
 //! assert_eq!(jrsonnet_gcmodule::count_thread_tracked(), 1);
 //! ```
 //!
@@ -276,6 +278,8 @@ pub mod testutil;
 mod trace;
 mod trace_impls;
 
+pub use trace_impls::TraceBox;
+
 pub use cc::{Cc, RawCc, RawWeak, Weak};
 pub use collect::{
     collect_thread_cycles, count_thread_tracked, with_thread_object_space, ObjectSpace,
@@ -314,7 +318,7 @@ pub use jrsonnet_gcmodule_derive::Trace;
 
 #[cfg(not(test))]
 mod debug {
-    #[cfg(any(feature = "debug", test))]
+    #[cfg(any(feature = "debug", feature = "testutil", test))]
     thread_local!(pub(crate) static NEXT_DEBUG_NAME: std::cell::Cell<usize> = Default::default());
     #[cfg(any(feature = "debug", test))]
     thread_local!(pub(crate) static GC_DROPPING: std::cell::Cell<bool> = Cell::new(false));
@@ -338,14 +342,13 @@ pub const DEBUG_ENABLED: bool = cfg!(feature = "debug");
 #[cfg(not(any(test, feature = "debug")))]
 pub mod interop {
     use std::mem;
-    use std::pin::Pin;
 
-    use crate::collect::{new_gc_list, GcHeader, THREAD_OBJECT_SPACE};
+    use crate::collect::{new_gc_list, OwnedGcHeader, THREAD_OBJECT_SPACE};
 
     /// Type-erased gc object list
     pub enum GcState {}
 
-    type UnerasedState = Pin<Box<GcHeader>>;
+    type UnerasedState = OwnedGcHeader;
 
     /// Dump current interned string pool, to be restored by
     /// `reenter_thread`
@@ -381,9 +384,8 @@ pub mod interop {
 mod dyn_cc {
     use crate::Trace;
     use std::fmt::Debug;
-    use std::ops::Deref;
 
-    use crate::{cc_dyn, Cc};
+    use crate::cc_dyn;
 
     #[derive(Debug, Trace)]
     struct Test {
@@ -392,7 +394,30 @@ mod dyn_cc {
 
     trait DebugAndTrace: Debug + Trace {}
     impl<T> DebugAndTrace for T where T: Debug + Trace {}
-    cc_dyn!(CcDebugAndTrace, DebugAndTrace);
+    cc_dyn!(
+        #[derive(Debug)]
+        CcDebugAndTrace,
+        DebugAndTrace
+    );
+
+    trait BorrowTy<O> {
+        fn borrow_ty(&self) -> &O;
+    }
+    cc_dyn!(CcBorrowTy<O>, BorrowTy<O>);
+    cc_dyn!(
+        CcBorrowTyAlsoDebug<O: Debug>,
+        BorrowTy<O>
+    );
+
+    #[derive(Trace)]
+    struct Borrowable<T: Trace> {
+        v: T,
+    }
+    impl<T: Trace> BorrowTy<T> for Borrowable<T> {
+        fn borrow_ty(&self) -> &T {
+            &self.v
+        }
+    }
 
     #[test]
     fn test_dyn() {
@@ -400,17 +425,28 @@ mod dyn_cc {
             a: "hello".to_owned(),
         };
 
+        let dynccgeneric = CcBorrowTy::new(Borrowable { v: 1u32 });
+        let v = dynccgeneric.0.borrow_ty();
+        assert_eq!(*v, 1);
+
+        let dynccgeneric = CcBorrowTyAlsoDebug::new(Borrowable { v: 1u32 });
+        let v = dynccgeneric.0.borrow_ty();
+        assert_eq!(*v, 1);
+
         let dyncc = CcDebugAndTrace::new(test);
-        assert_eq!(format!("{dyncc:?}"), "Cc(Test { a: \"hello\" })");
+        assert_eq!(
+            format!("{dyncc:?}"),
+            "CcDebugAndTrace(Cc(Test { a: \"hello\" }))"
+        );
         let dyncc_is_trace = dyncc;
         assert_eq!(
             format!("{dyncc_is_trace:?}"),
-            "Cc(Cc(Test { a: \"hello\" }))"
+            "CcDebugAndTrace(Cc(Test { a: \"hello\" }))"
         );
         let dyncc_is_trace_as_dyn = CcDebugAndTrace::new(dyncc_is_trace);
         assert_eq!(
             format!("{dyncc_is_trace_as_dyn:?}"),
-            "Cc(Cc(Test { a: \"hello\" }))"
+            "CcDebugAndTrace(Cc(CcDebugAndTrace(Cc(Test { a: \"hello\" }))))"
         );
     }
 }

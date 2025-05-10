@@ -1,7 +1,7 @@
 {
   description = "Gcmodule";
   inputs = {
-    nixpkgs.url = "github:nixos/nixpkgs";
+    nixpkgs.url = "github:nixos/nixpkgs/release-24.11";
     flake-utils.url = "github:numtide/flake-utils";
     rust-overlay.url = "github:oxalica/rust-overlay";
   };
@@ -22,6 +22,7 @@
         devShell = pkgs.mkShell {
           nativeBuildInputs = with pkgs; [
             rust
+            cargo-fuzz
             cargo-edit
             valgrind
           ];

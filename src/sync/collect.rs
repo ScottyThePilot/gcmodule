@@ -1,12 +1,12 @@
-use super::ref_count::ThreadedRefCount;
 use super::ThreadedCc;
+use super::ref_count::ThreadedRefCount;
+use crate::Trace;
 use crate::cc::CcDummy;
 use crate::cc::CcDyn;
 use crate::collect;
 use crate::collect::AbstractObjectSpace;
 use crate::collect::Linked;
 use crate::debug;
-use crate::Trace;
 use parking_lot::Mutex;
 use parking_lot::RwLock;
 use std::cell::Cell;
@@ -20,7 +20,7 @@ pub struct Header {
     prev: Cell<*const Header>,
 
     /// Vtable of (`&CcBox<T> as &dyn CcDyn`)
-    ccdyn_vptr: *const (),
+    ccdyn_vptr: Cell<*const ()>,
 
     /// Lock for mutating the linked list.
     linked_list_lock: Arc<Mutex<()>>,
@@ -47,25 +47,25 @@ impl AbstractObjectSpace for ThreadedObjectSpace {
     type RefCount = ThreadedRefCount;
     type Header = Header;
 
-    fn insert(&self, header: &mut Self::Header, value: &dyn CcDyn) {
+    fn insert(&self, header: *const Self::Header, value: &dyn CcDyn) {
         debug_assert!(Arc::ptr_eq(
-            &header.linked_list_lock,
+            unsafe { &(*header).linked_list_lock },
             &self.list.linked_list_lock
         ));
         // Should be locked by `create()` already.
         debug_assert!(self.list.linked_list_lock.try_lock().is_none());
         let prev: &Header = &self.list;
         debug_assert!(!collect::is_collecting(prev));
-        debug_assert!(header.next.get().is_null());
+        debug_assert!(unsafe { (*header).next.get() }.is_null());
         let next = prev.next.get();
-        header.prev.set(prev);
-        header.next.set(next);
+        unsafe { (*header).prev.set(prev) };
+        unsafe { (*header).next.set(next) };
         unsafe {
             // safety: The linked list is maintained, and pointers are valid.
             (*next).prev.set(header);
             // safety: To access vtable pointer. Test by test_gc_header_value.
             let fat_ptr: [*mut (); 2] = mem::transmute(value);
-            header.ccdyn_vptr = fat_ptr[1];
+            (*header).ccdyn_vptr.set(fat_ptr[1]);
         }
         prev.next.set(header);
     }
@@ -98,7 +98,7 @@ impl AbstractObjectSpace for ThreadedObjectSpace {
             linked_list_lock,
             next: Cell::new(std::ptr::null()),
             prev: Cell::new(std::ptr::null()),
-            ccdyn_vptr: CcDummy::ccdyn_vptr(),
+            ccdyn_vptr: Cell::new(CcDummy::ccdyn_vptr()),
         }
     }
 }
@@ -110,7 +110,7 @@ impl Default for ThreadedObjectSpace {
         let pinned = Box::pin(Header {
             prev: Cell::new(std::ptr::null()),
             next: Cell::new(std::ptr::null()),
-            ccdyn_vptr: CcDummy::ccdyn_vptr(),
+            ccdyn_vptr: Cell::new(CcDummy::ccdyn_vptr()),
             linked_list_lock,
         });
         let header: &Header = &pinned;
@@ -189,14 +189,16 @@ impl Linked for Header {
     fn set_prev(&self, other: *const Self) {
         self.prev.set(other)
     }
-    #[inline]
-    fn value(&self) -> &dyn CcDyn {
+    fn value_ptr(this: *const Self) -> *const dyn CcDyn {
         // safety: To build trait object from self and vtable pointer.
         // Test by test_gc_header_value_consistency().
         unsafe {
-            let fat_ptr: (*const (), *const ()) =
-                ((self as *const Self).offset(1) as _, self.ccdyn_vptr);
+            let fat_ptr: (*const (), *const ()) = (this.offset(1) as _, (*this).ccdyn_vptr.get());
             mem::transmute(fat_ptr)
         }
+    }
+    #[inline]
+    fn value(&self) -> &dyn CcDyn {
+        unsafe { mem::transmute(Self::value_ptr(self)) }
     }
 }

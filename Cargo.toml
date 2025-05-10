@@ -1,14 +1,14 @@
 [workspace.package]
-version = "0.3.7"
+version = "0.3.10"
 authors = ["Jun Wu <quark@lihdd.net>", "Yaroslav Bolyukin <iam@lach.pw>"]
-edition = "2021"
+edition = "2024"
 license = "MIT"
 repository = "https://github.com/CertainLach/gcmodule"
 
 [package]
 name = "jrsonnet-gcmodule"
 version.workspace = true
-authors.workspace  = true
+authors.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
@@ -21,11 +21,11 @@ readme = "README.md"
 quickcheck = { version = "1.0", default-features = false }
 
 [dependencies]
-jrsonnet-gcmodule-derive = { version = "0.3.7", optional = true, path = "gcmodule_derive" }
+jrsonnet-gcmodule-derive = { version = "0.3.10", optional = true, path = "gcmodule_derive" }
 parking_lot = { version = "0.12.3", optional = true }
 
 [features]
-default = ["derive", "sync"]
+default = ["derive"]
 debug = []
 derive = ["jrsonnet-gcmodule-derive"]
 nightly = []
@@ -33,5 +33,4 @@ sync = ["parking_lot"]
 testutil = []
 
 [workspace]
-members = ["gcmodule_derive"]
-
+members = ["gcmodule_derive", "fuzz"]
