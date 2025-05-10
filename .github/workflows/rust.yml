@@ -29,5 +29,9 @@ jobs:
           override: true
       - name: Run tests under miri
         run: cargo +nightly miri test
+        env:
+          MIRIFLAGS: "-Zmiri-tree-borrows"
       - name: Run tests under miri without default features
         run: cargo +nightly miri test --no-default-features --lib
+        env:
+          MIRIFLAGS: "-Zmiri-tree-borrows"
