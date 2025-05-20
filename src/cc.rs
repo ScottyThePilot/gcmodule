@@ -7,8 +7,8 @@ use crate::trace::Trace;
 use crate::trace::Tracer;
 use std::cell::UnsafeCell;
 use std::mem;
-use std::mem::offset_of;
 use std::mem::ManuallyDrop;
+use std::mem::offset_of;
 use std::ops::Deref;
 use std::ops::DerefMut;
 use std::panic::UnwindSafe;
@@ -743,25 +743,27 @@ impl<T: ?Sized + std::marker::Unsize<U>, U: ?Sized, O: AbstractObjectSpace>
 #[inline]
 unsafe fn cast_box<T: ?Sized, O: AbstractObjectSpace>(
     value: Box<RawCcBox<T, O>>,
-) -> Box<RawCcBoxWithGcHeader<T, O>> { unsafe {
-    let mut ptr: *const RawCcBox<T, O> = Box::into_raw(value);
+) -> Box<RawCcBoxWithGcHeader<T, O>> {
+    unsafe {
+        let mut ptr: *const RawCcBox<T, O> = Box::into_raw(value);
 
-    // ptr can be "thin" (1 pointer) or "fat" (2 pointers).
-    // Change the first byte to point to the GcHeader.
-    let pptr: *mut *const RawCcBox<T, O> = &mut ptr;
-    let pptr: *mut *const O::Header = pptr as _;
-    *pptr = (*pptr).offset(-1);
-    let ptr: *mut RawCcBoxWithGcHeader<T, O> = mem::transmute(ptr);
-    Box::from_raw(ptr)
-}}
+        // ptr can be "thin" (1 pointer) or "fat" (2 pointers).
+        // Change the first byte to point to the GcHeader.
+        let pptr: *mut *const RawCcBox<T, O> = &mut ptr;
+        let pptr: *mut *const O::Header = pptr as _;
+        *pptr = (*pptr).offset(-1);
+        let ptr: *mut RawCcBoxWithGcHeader<T, O> = mem::transmute(ptr);
+        Box::from_raw(ptr)
+    }
+}
 
 #[cfg(test)]
 mod tests {
     use self::collect::GcHeader;
 
     use super::*;
-    use crate::collect::Linked;
     use crate::TraceBox;
+    use crate::collect::Linked;
 
     /// Check that `GcHeader::value()` returns a working trait object.
     #[test]
@@ -776,7 +778,7 @@ mod tests {
         let v3: &dyn CcDyn = v1.inner() as &dyn CcDyn;
         assert_eq!(v3.gc_ref_count(), 2);
 
-        let v4: &dyn CcDyn = unsafe{&*GcHeader::value_ptr(v2.inner().header())};
+        let v4: &dyn CcDyn = unsafe { &*GcHeader::value_ptr(v2.inner().header()) };
         assert_eq!(v4.gc_ref_count(), 2);
     }
 

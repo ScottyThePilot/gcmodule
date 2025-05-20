@@ -50,7 +50,9 @@
 //! assert_eq!(jrsonnet_gcmodule::collect_thread_cycles(), 2);  // This will drop a and b.
 //! assert_eq!(jrsonnet_gcmodule::count_thread_tracked(), 0);   // no values are tracked.
 //! ```
-#![cfg_attr(feature = "sync", doc = r##"
+#![cfg_attr(
+    feature = "sync",
+    doc = r##"
 
 ## Multi-thread support
 
@@ -79,7 +81,8 @@ assert_eq!(space.count_tracked(), 2);
 assert_eq!(space.collect_cycles(), 2);
 assert_eq!(space.count_tracked(), 0);
 ```
-"##)]
+"##
+)]
 //!
 //! ## Defining new types
 //!
@@ -282,12 +285,12 @@ pub use trace_impls::TraceBox;
 
 pub use cc::{Cc, RawCc, RawWeak, Weak};
 pub use collect::{
-    collect_thread_cycles, count_thread_tracked, with_thread_object_space, ObjectSpace,
+    ObjectSpace, collect_thread_cycles, count_thread_tracked, with_thread_object_space,
 };
-pub use trace::{Trace, Tracer};
+pub use trace::{Acyclic, Trace, Tracer};
 
 #[cfg(feature = "sync")]
-pub use sync::{collect::ThreadedObjectSpace, ThreadedCc, ThreadedCcRef};
+pub use sync::{ThreadedCc, ThreadedCcRef, collect::ThreadedObjectSpace};
 
 /// Derive [`Trace`](trait.Trace.html) implementation for a structure.
 ///
@@ -314,7 +317,7 @@ pub use sync::{collect::ThreadedObjectSpace, ThreadedCc, ThreadedCcRef};
 /// struct AlienStruct;
 /// ```
 #[cfg(feature = "derive")]
-pub use jrsonnet_gcmodule_derive::Trace;
+pub use jrsonnet_gcmodule_derive::{Acyclic, Trace};
 
 #[cfg(not(test))]
 mod debug {
@@ -343,7 +346,7 @@ pub const DEBUG_ENABLED: bool = cfg!(feature = "debug");
 pub mod interop {
     use std::mem;
 
-    use crate::collect::{new_gc_list, OwnedGcHeader, THREAD_OBJECT_SPACE};
+    use crate::collect::{OwnedGcHeader, THREAD_OBJECT_SPACE, new_gc_list};
 
     /// Type-erased gc object list
     pub enum GcState {}

@@ -76,3 +76,18 @@ pub trait Trace: 'static {
         true
     }
 }
+
+/// Type-level assertion for `Trace::is_type_tracked`
+///
+/// `is_type_tracked` is only allowed to return false for types which implement Acyclic trait.
+///
+/// # Safety
+///
+/// `Acyclic` struct might not contain cycles which should be collected
+pub unsafe trait Acyclic: Trace {
+    // This method is used by `derive(Acyclic)` macro to assert that every field
+    // of a type implements Acyclic itself.
+    #[doc(hidden)]
+    #[inline]
+    fn assert_fields_are_acyclic(&self) {}
+}

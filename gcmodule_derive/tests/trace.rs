@@ -1,4 +1,4 @@
-use jrsonnet_gcmodule::{Cc, Trace, TraceBox, Tracer};
+use jrsonnet_gcmodule::{Acyclic, Cc, Trace, TraceBox, Tracer};
 use jrsonnet_gcmodule_derive::Trace as DeriveTrace;
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -45,11 +45,11 @@ fn test_type_parameters() {
     assert!(S0::<TraceBox<dyn Trace>>::is_type_tracked());
 
     #[derive(DeriveTrace)]
-    struct S1<T: Trace> {
+    struct S1<T: Acyclic> {
         a: Option<Rc<T>>,
     }
     assert!(!S1::<u8>::is_type_tracked());
-    assert!(!S1::<TraceBox<dyn Trace>>::is_type_tracked());
+    assert!(!S1::<TraceBox<dyn Acyclic>>::is_type_tracked());
 }
 
 #[test]

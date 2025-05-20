@@ -23,11 +23,10 @@ use proc_macro::TokenStream;
 use proc_macro2::TokenStream as TokenStream2;
 use quote::{format_ident, quote};
 use syn::{
-    parenthesized,
+    Attribute, Data, DeriveInput, Error, Field, Fields, Ident, Path, Result, parenthesized,
     parse::{Parse, ParseStream},
     parse_macro_input,
     spanned::Spanned,
-    Attribute, Data, DeriveInput, Error, Field, Fields, Ident, Path, Result,
 };
 
 mod kw {
@@ -131,7 +130,7 @@ fn derive_fields(
             match attr {
                 Some(TraceAttr::Skip | TraceAttr::TrackingForce(false)) => return None,
                 Some(TraceAttr::With(_) | TraceAttr::TrackingForce(true)) => {
-                    return Some(quote! {true})
+                    return Some(quote! {true});
                 }
                 _ => {}
             }
@@ -293,6 +292,73 @@ fn derive_trace(input: DeriveInput) -> Result<TokenStream2> {
 pub fn derive_trace_real(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
     match derive_trace(input) {
+        Ok(v) => v.into(),
+        Err(e) => e.to_compile_error().into(),
+    }
+}
+fn assert_fields_acyclic(fields: &Fields) -> Result<TokenStream2> {
+    fn inner(fields: Vec<&Field>) -> TokenStream2 {
+        let assert_field_acyclic = fields.iter().map(|field| {
+            let ty = &field.ty;
+            quote! {
+                let _: ::std::rc::Rc<#ty>;
+            }
+        });
+
+        quote! {
+            #(#assert_field_acyclic)*
+        }
+    }
+    match fields {
+        Fields::Named(named) => Ok(inner(named.named.iter().collect())),
+        Fields::Unnamed(unnamed) => Ok(inner(unnamed.unnamed.iter().collect())),
+        Fields::Unit => Ok(quote! {}),
+    }
+}
+
+fn derive_acyclic(input: DeriveInput) -> Result<TokenStream2> {
+    let ident = &input.ident;
+    let (impl_generics, type_generics, where_clause) = input.generics.split_for_impl();
+    let asserts = match &input.data {
+        Data::Struct(s) => assert_fields_acyclic(&s.fields)?,
+        Data::Enum(e) if e.variants.is_empty() => quote! {},
+        Data::Enum(e) => {
+            let variants = e
+                .variants
+                .iter()
+                .map(|v| {
+                    let impls = assert_fields_acyclic(&v.fields)?;
+                    Ok(impls)
+                })
+                .collect::<Result<Vec<_>>>()?;
+
+            quote! {
+                #(#variants)*
+            }
+        }
+
+        Data::Union(_) => return Err(Error::new(input.span(), "union is not supported")),
+    };
+    Ok(quote! {
+        impl #impl_generics ::jrsonnet_gcmodule::Trace for #ident #type_generics #where_clause {
+            #[allow(unused_variables)]
+            fn trace(&self, tracer: &mut ::jrsonnet_gcmodule::Tracer) {}
+            fn is_type_tracked() -> bool {
+                false
+            }
+        }
+        unsafe impl #impl_generics ::jrsonnet_gcmodule::Acyclic for #ident #type_generics #where_clause {
+            fn assert_fields_are_acyclic(&self) {
+                #asserts
+            }
+        }
+    })
+}
+
+#[proc_macro_derive(Acyclic)]
+pub fn derive_acyclic_real(input: TokenStream) -> TokenStream {
+    let input = parse_macro_input!(input as DeriveInput);
+    match derive_acyclic(input) {
         Ok(v) => v.into(),
         Err(e) => e.to_compile_error().into(),
     }

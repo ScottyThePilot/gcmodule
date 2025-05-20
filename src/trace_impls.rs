@@ -1,6 +1,7 @@
 use std::borrow::{Borrow, BorrowMut};
 use std::ops::{Deref, DerefMut};
 
+use crate::Acyclic;
 use crate::trace::{Trace, Tracer};
 
 /// Mark types as acyclic. Opt-out the cycle collector.
@@ -25,10 +26,11 @@ use crate::trace::{Trace, Tracer};
 #[macro_export]
 macro_rules! trace_acyclic {
     ( <$( $g:ident ),*> $( $t: tt )* ) => {
-        impl<$( $g: 'static ),*> $crate::Trace for $($t)* {
+        impl<$( $g: 'static + $crate::Acyclic ),*> $crate::Trace for $($t)* {
             #[inline]
             fn is_type_tracked() -> bool where Self: Sized { false }
         }
+        unsafe impl<$( $g: 'static + $crate::Acyclic ),*> $crate::Acyclic for $($t)* {}
     };
     ( $( $t: ty ),* ) => {
         $( trace_acyclic!(<> $t); )*
@@ -68,11 +70,14 @@ macro_rules! trace_fields {
                     false
                 }
             }
+            unsafe impl< $( $( $tp: $crate::Acyclic )? ),* > $crate::Acyclic for $type {}
         )*
     };
 }
 
-trace_acyclic!(bool, char, f32, f64, i16, i32, i64, i8, isize, u16, u32, u64, u8, usize);
+trace_acyclic!(
+    bool, char, f32, f64, i16, i32, i64, i8, isize, u16, u32, u64, u8, usize
+);
 trace_acyclic!(());
 trace_acyclic!(String, &'static str);
 
@@ -246,6 +251,19 @@ mod vec {
     }
 }
 
+mod slice {
+    use crate::{Acyclic, Trace, Tracer};
+
+    impl<T: Trace> Trace for [T] {
+        fn trace(&self, tracer: &mut Tracer) {
+            for t in self {
+                t.trace(tracer);
+            }
+        }
+    }
+    unsafe impl<T: Acyclic> Acyclic for [T] {}
+}
+
 // See https://github.com/rust-lang/rust/issues/56105#issuecomment-465709105
 #[allow(unknown_lints)]
 #[allow(coherence_leak_check)]
@@ -351,7 +369,17 @@ mod process {
 mod rc {
     use std::rc;
 
-    trace_acyclic!(<T> rc::Rc<T>);
+    use crate::{Acyclic, Trace};
+
+    impl<T: ?Sized + Acyclic + 'static> Trace for rc::Rc<T> {
+        fn is_type_tracked() -> bool
+        where
+            Self: Sized,
+        {
+            false
+        }
+    }
+
     trace_acyclic!(<T> rc::Weak<T>);
 }
 
@@ -442,7 +470,6 @@ mod tests {
     use super::*;
     use crate::Cc;
     use std::cell::{Cell, RefCell};
-    use std::rc::Rc;
 
     #[test]
     fn test_is_type_tracked() {
@@ -467,18 +494,6 @@ mod tests {
 
     #[test]
     fn test_is_cyclic_type_tracked() {
-        type C1 = RefCell<Option<Rc<Box<S1>>>>;
-        struct S1(C1);
-        impl Trace for S1 {
-            fn trace(&self, t: &mut Tracer) {
-                self.0.trace(t);
-            }
-            fn is_type_tracked() -> bool {
-                // This is not an infinite loop because Rc is not tracked.
-                C1::is_type_tracked()
-            }
-        }
-
         type C2 = RefCell<Option<Cc<Box<S2>>>>;
         struct S2(C2);
         impl Trace for S2 {
@@ -491,7 +506,6 @@ mod tests {
             }
         }
 
-        assert!(!S1::is_type_tracked());
         assert!(S2::is_type_tracked());
     }
 }
@@ -511,6 +525,7 @@ impl<T: ?Sized + Trace> Trace for TraceBox<T> {
         true
     }
 }
+unsafe impl<T: ?Sized> Acyclic for TraceBox<T> where T: Acyclic {}
 
 impl<T: ?Sized> From<Box<T>> for TraceBox<T> {
     fn from(inner: Box<T>) -> Self {
